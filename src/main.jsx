@@ -100,7 +100,7 @@ function App() {
     };
 
     const soldThisMonth = works.filter((w) => w.sale === '已售' && isThisMonth(w.saleDate));
-    const settledThisMonth = works.filter((w) => w.settlement === '已结算' && isThisMonth(w.settlementDate));
+    const settledThisMonth = works.filter((w) => w.sale === '已售' && w.settlement === '已结算' && isThisMonth(w.settlementDate));
     const pendingThisMonth = works.filter((w) => w.sale === '已售' && w.settlement === '待结算' && isThisMonth(w.saleDate));
 
     const soldAmount = soldThisMonth.reduce((sum, w) => sum + Number(w.price || 0), 0);
