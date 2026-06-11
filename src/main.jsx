@@ -4,6 +4,7 @@ import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, Chec
 import './styles.css';
 import CustomerList from './CustomerList.jsx';
 import DataHealthCenter from './DataHealthCenter.jsx';
+import SalesFunnel from './SalesFunnel.jsx';
 import { buildCustomerProfile } from './customerUtils.js';
 
 const iso = (offset = 0) => {
@@ -347,6 +348,8 @@ function App() {
   const [migrationStep, setMigrationStep] = useState('idle');
   const [migrationError, setMigrationError] = useState('');
   const [showHealthCenter, setShowHealthCenter] = useState(false);
+  const [showSalesFunnel, setShowSalesFunnel] = useState(false);
+  const [selectedFunnelWorkId, setSelectedFunnelWorkId] = useState(null);
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -2376,6 +2379,7 @@ function App() {
           <h2><Database size={18} />数据迁移与恢复</h2>
           <div></div>
           <div className="toolbar-right">
+            <button className="ghost" onClick={() => setShowSalesFunnel(!showSalesFunnel)}><TrendingUp size={14} /> 销售漏斗</button>
             <button className="ghost" onClick={() => setShowHealthCenter(!showHealthCenter)}><Shield size={14} /> 数据健康中心</button>
             <button className="ghost" onClick={exportBackup}><Download size={14} /> 导出备份</button>
             <button className="ghost" onClick={() => setShowMigration(!showMigration)}><Upload size={14} /> 导入恢复</button>
@@ -2540,6 +2544,19 @@ function App() {
           statements={statements}
           inventoryTasks={inventoryTasks}
           onFixApplied={handleFixApplied}
+        />
+      )}
+
+      {showSalesFunnel && (
+        <SalesFunnel
+          works={works}
+          orders={orders}
+          inquiries={inquiries}
+          statements={statements}
+          selectedWorkId={selectedFunnelWorkId}
+          onBack={() => { setShowSalesFunnel(false); setSelectedFunnelWorkId(null); }}
+          onViewWorkDetail={(workId) => setSelectedFunnelWorkId(selectedFunnelWorkId === workId ? null : workId)}
+          onOpenOrderForWork={openOrderForWork}
         />
       )}
 
