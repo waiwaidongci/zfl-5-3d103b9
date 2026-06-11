@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, Search, Tag, TrendingUp, User, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, Search, Tag, TrendingUp, User, XCircle } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -325,6 +325,11 @@ function App() {
   const [editingOrderId, setEditingOrderId] = useState(null);
   const [orderFormErrors, setOrderFormErrors] = useState([]);
   const [orderFilterRaw, setOrderFilterRaw] = useStorage('zfl-5-order-filter', '全部订单');
+  const [statements, setStatements] = useStorage('zfl-5-statements', []);
+  const [showStatementForm, setShowStatementForm] = useState(false);
+  const [statementForm, setStatementForm] = useState({ artist: '', startDate: '', endDate: '' });
+  const [statementPreview, setStatementPreview] = useState(null);
+  const [statementFilter, setStatementFilter] = useState('全部');
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -720,6 +725,111 @@ function App() {
     setOrders(orders.map((o) => o.id === orderId ? { ...o, balanceStatus: nextStatus } : o));
   }
 
+  function previewStatement() {
+    if (!statementForm.artist || !statementForm.startDate || !statementForm.endDate) {
+      return;
+    }
+
+    const activeOrders = orders.filter((o) => !o.cancelledAt);
+    const workOrderMap = {};
+    activeOrders.forEach((o) => {
+      workOrderMap[o.workId] = o;
+    });
+
+    const soldWorks = works.filter((w) => {
+      if (w.artist !== statementForm.artist) return false;
+      if (w.sale !== '已售') return false;
+      const saleDate = w.saleDate || (workOrderMap[w.id] ? workOrderMap[w.id].dealDate : null);
+      if (!saleDate) return false;
+      return saleDate >= statementForm.startDate && saleDate <= statementForm.endDate;
+    });
+
+    const commissionRate = commissionRateMap[statementForm.artist] ?? DEFAULT_COMMISSION_RATE;
+
+    const items = soldWorks.map((w) => {
+      const order = workOrderMap[w.id];
+      const dealPrice = order ? Number(order.dealPrice || 0) : Number(w.price || 0);
+      const commission = Math.round(dealPrice * commissionRate);
+      const payable = dealPrice - commission;
+      return {
+        workId: w.id,
+        workTitle: w.title,
+        artist: w.artist,
+        dealPrice,
+        commissionRate: Math.round(commissionRate * 100),
+        commission,
+        payable,
+        saleDate: w.saleDate || (order ? order.dealDate : ''),
+        settlementStatus: w.settlement,
+        customerName: order ? order.customerName : '',
+        orderId: order ? order.id : null
+      };
+    });
+
+    const totalDealPrice = items.reduce((sum, it) => sum + it.dealPrice, 0);
+    const totalCommission = items.reduce((sum, it) => sum + it.commission, 0);
+    const totalPayable = items.reduce((sum, it) => sum + it.payable, 0);
+
+    setStatementPreview({
+      artist: statementForm.artist,
+      startDate: statementForm.startDate,
+      endDate: statementForm.endDate,
+      items,
+      totalDealPrice,
+      totalCommission,
+      totalPayable,
+      commissionRate: Math.round(commissionRate * 100)
+    });
+  }
+
+  function saveStatement() {
+    if (!statementPreview || statementPreview.items.length === 0) return;
+
+    const newStatement = {
+      id: crypto.randomUUID(),
+      artist: statementPreview.artist,
+      startDate: statementPreview.startDate,
+      endDate: statementPreview.endDate,
+      items: JSON.parse(JSON.stringify(statementPreview.items)),
+      totalDealPrice: statementPreview.totalDealPrice,
+      totalCommission: statementPreview.totalCommission,
+      totalPayable: statementPreview.totalPayable,
+      commissionRate: statementPreview.commissionRate,
+      confirmed: false,
+      confirmedAt: null,
+      createdAt: new Date().toISOString()
+    };
+
+    setStatements([newStatement, ...statements]);
+    setStatementPreview(null);
+    setStatementForm({ artist: '', startDate: '', endDate: '' });
+    setShowStatementForm(false);
+  }
+
+  function confirmStatement(statementId) {
+    setStatements(statements.map((s) =>
+      s.id === statementId
+        ? { ...s, confirmed: true, confirmedAt: new Date().toISOString() }
+        : s
+    ));
+  }
+
+  function clearStatementForm() {
+    setStatementForm({ artist: '', startDate: '', endDate: '' });
+    setStatementPreview(null);
+  }
+
+  const filteredStatements = useMemo(() => {
+    return statements
+      .filter((s) => {
+        if (statementFilter === '全部') return true;
+        if (statementFilter === '已确认') return s.confirmed;
+        if (statementFilter === '待确认') return !s.confirmed;
+        return s.artist === statementFilter;
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [statements, statementFilter]);
+
   function previewBatchImport() {
     if (!batchCsvText.trim()) {
       setBatchPreview(null);
@@ -842,6 +952,7 @@ function App() {
           <label><Search size={16} /><input placeholder="搜索艺术家/作品/状态" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
           <div className="toolbar-right">
             <label><Filter size={16} /><select value={status} onChange={(e) => setStatus(e.target.value)}><option>全部展态</option><option>展出中</option><option>库房</option><option>借展</option><option>退回</option></select></label>
+            <button className="ghost" onClick={() => setShowStatementForm(true)}><FileText size={14} /> 生成对账单</button>
             <button className="ghost" onClick={() => setShowOrderForm(true)}><Plus size={14} /> 登记销售</button>
             <button className="ghost" onClick={() => setShowLoanForm(true)}><Plus size={14} /> 登记借展</button>
             <button className="ghost" onClick={() => setShowInquiryForm(true)}><Plus size={14} /> 登记询价</button>
@@ -1395,6 +1506,196 @@ function App() {
               })}
             </div>
           </>
+        )}
+      </section>
+
+      {showStatementForm && (
+        <section className="panel inquiry-form-panel">
+          <div className="panel-header">
+            <h2><FileText size={18} />生成艺术家对账单</h2>
+            <button className="ghost small" onClick={() => { setShowStatementForm(false); clearStatementForm(); }}>收起</button>
+          </div>
+          <div className="inquiry-form">
+            <div className="form-row split">
+              <label><span className="label-icon"><User size={14} /></span>
+                <select value={statementForm.artist} onChange={(e) => { setStatementForm({ ...statementForm, artist: e.target.value }); setStatementPreview(null); }}>
+                  <option value="">请选择艺术家 *</option>
+                  {artists.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
+                </select>
+              </label>
+              <label></label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><Calendar size={14} /></span>
+                <input type="date" value={statementForm.startDate} onChange={(e) => { setStatementForm({ ...statementForm, startDate: e.target.value }); setStatementPreview(null); }} />
+                <span className="label-hint">起始日期</span>
+              </label>
+              <label><span className="label-icon"><Calendar size={14} /></span>
+                <input type="date" value={statementForm.endDate} onChange={(e) => { setStatementForm({ ...statementForm, endDate: e.target.value }); setStatementPreview(null); }} />
+                <span className="label-hint">结束日期</span>
+              </label>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="ghost" onClick={clearStatementForm}>清空</button>
+              <button type="button" onClick={previewStatement}>预览对账单</button>
+            </div>
+
+            {statementPreview && (
+              <div className="statement-preview">
+                <div className="statement-summary-bar">
+                  <div className="statement-summary-info">
+                    <strong>{statementPreview.artist}</strong>
+                    <span>{statementPreview.startDate} 至 {statementPreview.endDate}</span>
+                    <span>佣金比例 {statementPreview.commissionRate}%</span>
+                  </div>
+                  <div className="statement-summary-stats">
+                    <div><span>成交总额</span><strong>¥{statementPreview.totalDealPrice.toLocaleString()}</strong></div>
+                    <div><span>佣金合计</span><strong className="text-purple">¥{statementPreview.totalCommission.toLocaleString()}</strong></div>
+                    <div><span>应付艺术家</span><strong className="text-green">¥{statementPreview.totalPayable.toLocaleString()}</strong></div>
+                  </div>
+                </div>
+
+                {statementPreview.items.length === 0 ? (
+                  <p className="empty-tip">该时间段内没有已售作品记录</p>
+                ) : (
+                  <>
+                    <div className="statement-table-container">
+                      <table className="statement-table">
+                        <thead>
+                          <tr>
+                            <th>作品名称</th>
+                            <th>成交日期</th>
+                            <th>客户</th>
+                            <th>成交价</th>
+                            <th>佣金</th>
+                            <th>应付金额</th>
+                            <th>结算状态</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {statementPreview.items.map((it, idx) => (
+                            <tr key={idx}>
+                              <td>{it.workTitle}</td>
+                              <td>{it.saleDate}</td>
+                              <td>{it.customerName || '-'}</td>
+                              <td>¥{it.dealPrice.toLocaleString()}</td>
+                              <td className="text-purple">¥{it.commission.toLocaleString()}</td>
+                              <td className="text-green">¥{it.payable.toLocaleString()}</td>
+                              <td><span className={`settlement-tag settlement-${it.settlementStatus}`}>{it.settlementStatus}</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td colSpan={3}><strong>合计（{statementPreview.items.length}件作品）</strong></td>
+                            <td><strong>¥{statementPreview.totalDealPrice.toLocaleString()}</strong></td>
+                            <td className="text-purple"><strong>¥{statementPreview.totalCommission.toLocaleString()}</strong></td>
+                            <td className="text-green"><strong>¥{statementPreview.totalPayable.toLocaleString()}</strong></td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <div className="form-actions">
+                      <button type="button" className="ghost" onClick={() => setStatementPreview(null)}>取消</button>
+                      <button type="button" onClick={saveStatement}>
+                        <CheckCircle2 size={14} /> 保存对账单
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      <section className="panel">
+        <div className="toolbar">
+          <h2><FileText size={18} />艺术家对账单记录 ({filteredStatements.length})</h2>
+          <label><Filter size={16} />
+            <select value={statementFilter} onChange={(e) => setStatementFilter(e.target.value)}>
+              <option value="全部">全部</option>
+              <option value="待确认">待确认</option>
+              <option value="已确认">已确认</option>
+              {artists.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
+            </select>
+          </label>
+          <div></div>
+        </div>
+        {filteredStatements.length === 0 ? (
+          <p className="empty-tip">暂无对账单记录，点击上方"生成对账单"开始创建。</p>
+        ) : (
+          <div className="statement-list">
+            {filteredStatements.map((s) => (
+              <div className={`statement-card ${s.confirmed ? 'statement-confirmed' : 'statement-pending'}`} key={s.id}>
+                <div className="statement-card-header">
+                  <div>
+                    <strong className="statement-artist">{s.artist}</strong>
+                    <span className="statement-period">{s.startDate} 至 {s.endDate}</span>
+                  </div>
+                  <div className="statement-status">
+                    {s.confirmed ? (
+                      <span className="status-tag status-confirmed">
+                        <CheckCircle2 size={14} /> 已确认
+                        {s.confirmedAt && <em> · {new Date(s.confirmedAt).toLocaleDateString('zh-CN')}</em>}
+                      </span>
+                    ) : (
+                      <span className="status-tag status-unconfirmed">
+                        <Clock size={14} /> 待确认
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="statement-card-stats">
+                  <div><span>成交</span><strong>{s.items.length}件 · ¥{s.totalDealPrice.toLocaleString()}</strong></div>
+                  <div><span>佣金({s.commissionRate}%)</span><strong className="text-purple">¥{s.totalCommission.toLocaleString()}</strong></div>
+                  <div><span>应付</span><strong className="text-green">¥{s.totalPayable.toLocaleString()}</strong></div>
+                  <div className="statement-created"><span>创建</span><em>{new Date(s.createdAt).toLocaleDateString('zh-CN')}</em></div>
+                </div>
+                <div className="statement-items-collapse">
+                  <details>
+                    <summary>查看明细（{s.items.length}件作品）</summary>
+                    <div className="statement-table-container">
+                      <table className="statement-table">
+                        <thead>
+                          <tr>
+                            <th>作品名称</th>
+                            <th>成交日期</th>
+                            <th>客户</th>
+                            <th>成交价</th>
+                            <th>佣金</th>
+                            <th>应付金额</th>
+                            <th>结算状态</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {s.items.map((it, idx) => (
+                            <tr key={idx}>
+                              <td>{it.workTitle}</td>
+                              <td>{it.saleDate}</td>
+                              <td>{it.customerName || '-'}</td>
+                              <td>¥{it.dealPrice.toLocaleString()}</td>
+                              <td className="text-purple">¥{it.commission.toLocaleString()}</td>
+                              <td className="text-green">¥{it.payable.toLocaleString()}</td>
+                              <td><span className={`settlement-tag settlement-${it.settlementStatus}`}>{it.settlementStatus}</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                </div>
+                {!s.confirmed && (
+                  <div className="statement-card-actions">
+                    <button onClick={() => confirmStatement(s.id)}>
+                      <CheckCircle2 size={14} /> 确认本次对账单
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </section>
 
