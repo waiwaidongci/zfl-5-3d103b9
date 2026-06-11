@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Filter, MessageCircle, MessageSquare, Phone, Plus, Search, Tag, User, XCircle } from 'lucide-react';
+import { ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, Filter, MessageCircle, MessageSquare, Percent, Phone, Plus, Search, Tag, User, XCircle } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -8,6 +8,25 @@ const iso = (offset = 0) => {
   date.setDate(date.getDate() + offset);
   return date.toISOString().slice(0, 10);
 };
+
+const DEFAULT_COMMISSION_RATE = 0.35;
+
+function extractCommissionRate(note) {
+  if (!note) return DEFAULT_COMMISSION_RATE;
+  const match = note.match(/佣金\s*(\d+(?:\.\d+)?)\s*%/);
+  if (match) {
+    return Number(match[1]) / 100;
+  }
+  return DEFAULT_COMMISSION_RATE;
+}
+
+function getCommissionRateMap(artists) {
+  const map = {};
+  artists.forEach((artist) => {
+    map[artist.name] = extractCommissionRate(artist.note);
+  });
+  return map;
+}
 
 const seedArtists = [
   { id: 'seed-artist-xieql', name: '谢青岚', phone: '13600001111', style: '纸本水墨', note: '月结，佣金35%' },
@@ -66,6 +85,49 @@ function App() {
     ...artist,
     works: works.filter((work) => work.artist === artist.name)
   })), [artists, works]);
+
+  const commissionRateMap = useMemo(() => getCommissionRateMap(artists), [artists]);
+
+  const monthlySettlement = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const isThisMonth = (dateStr) => {
+      const d = new Date(dateStr);
+      return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+    };
+
+    const soldWorks = works.filter((w) => w.sale === '已售');
+    const pendingWorks = works.filter((w) => w.settlement === '待结算');
+    const settledWorks = works.filter((w) => w.settlement === '已结算');
+
+    const soldAmount = soldWorks.reduce((sum, w) => sum + Number(w.price || 0), 0);
+    const pendingAmount = pendingWorks.reduce((sum, w) => sum + Number(w.price || 0), 0);
+    const settledAmount = settledWorks.reduce((sum, w) => sum + Number(w.price || 0), 0);
+
+    const estimatedCommission = pendingWorks.reduce((sum, w) => {
+      const rate = commissionRateMap[w.artist] ?? DEFAULT_COMMISSION_RATE;
+      return sum + Number(w.price || 0) * rate;
+    }, 0);
+
+    const settledCommission = settledWorks.reduce((sum, w) => {
+      const rate = commissionRateMap[w.artist] ?? DEFAULT_COMMISSION_RATE;
+      return sum + Number(w.price || 0) * rate;
+    }, 0);
+
+    return {
+      pendingCount: pendingWorks.length,
+      pendingAmount,
+      settledCount: settledWorks.length,
+      settledAmount,
+      soldCount: soldWorks.length,
+      soldAmount,
+      estimatedCommission,
+      settledCommission,
+      currentMonthLabel: `${currentYear}年${currentMonth + 1}月`
+    };
+  }, [works, commissionRateMap]);
 
   const filteredInquiries = useMemo(() => {
     return inquiries
@@ -473,9 +535,55 @@ function App() {
           <h2>艺术家详情</h2>
           {artistStats.map((artist) => <p className="artist" key={artist.id}><strong>{artist.name}</strong><span>{artist.style} · {artist.works.length}件 · {artist.note}</span></p>)}
         </div>
-        <div className="panel">
-          <h2>待结算列表</h2>
-          {settlementWorks.map((work) => <p className="artist" key={work.id}><strong>{work.title}</strong><span>{work.artist} · ¥{Number(work.price).toLocaleString()}</span></p>)}
+        <div className="settlement-column">
+          <div className="panel settlement-overview">
+            <div className="panel-header">
+              <h2><Coins size={18} />月度结算概览</h2>
+              <span className="month-label">{monthlySettlement.currentMonthLabel}</span>
+            </div>
+            <div className="settlement-stats">
+              <div className="stat-card stat-pending">
+                <div className="stat-icon"><Clock size={20} /></div>
+                <div className="stat-info">
+                  <span className="stat-label">待结算</span>
+                  <strong className="stat-value">{monthlySettlement.pendingCount}件</strong>
+                  <span className="stat-amount">¥{monthlySettlement.pendingAmount.toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="stat-card stat-settled">
+                <div className="stat-icon"><CheckCircle2 size={20} /></div>
+                <div className="stat-info">
+                  <span className="stat-label">已结算</span>
+                  <strong className="stat-value">{monthlySettlement.settledCount}件</strong>
+                  <span className="stat-amount">¥{monthlySettlement.settledAmount.toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="stat-card stat-sold">
+                <div className="stat-icon"><Banknote size={20} /></div>
+                <div className="stat-info">
+                  <span className="stat-label">销售金额</span>
+                  <strong className="stat-value">{monthlySettlement.soldCount}件已售</strong>
+                  <span className="stat-amount">¥{monthlySettlement.soldAmount.toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="stat-card stat-commission">
+                <div className="stat-icon"><Percent size={20} /></div>
+                <div className="stat-info">
+                  <span className="stat-label">预计佣金</span>
+                  <strong className="stat-value">待结算部分</strong>
+                  <span className="stat-amount">¥{Math.round(monthlySettlement.estimatedCommission).toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="panel">
+            <h2>待结算列表</h2>
+            {settlementWorks.length === 0 ? (
+              <p className="empty-tip">暂无待结算作品</p>
+            ) : (
+              settlementWorks.map((work) => <p className="artist" key={work.id}><strong>{work.title}</strong><span>{work.artist} · ¥{Number(work.price).toLocaleString()}</span></p>)
+            )}
+          </div>
         </div>
       </section>
     </main>
