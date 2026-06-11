@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   TrendingUp,
   Users,
@@ -29,14 +29,33 @@ function SalesFunnel({
   orders,
   inquiries,
   statements,
+  selectedWorkId: propSelectedWorkId,
   onBack,
   onViewWorkDetail,
   onOpenOrderForWork
 }) {
   const [selectedStage, setSelectedStage] = useState(null);
-  const [selectedWorkId, setSelectedWorkId] = useState(null);
+  const [internalSelectedWorkId, setInternalSelectedWorkId] = useState(null);
   const [showAnomalies, setShowAnomalies] = useState(false);
   const [workSearchQuery, setWorkSearchQuery] = useState('');
+
+  const selectedWorkId = propSelectedWorkId ?? internalSelectedWorkId;
+
+  const handleSelectWork = useCallback((workId) => {
+    if (onViewWorkDetail) {
+      onViewWorkDetail(workId);
+    } else {
+      setInternalSelectedWorkId(workId);
+    }
+  }, [onViewWorkDetail]);
+
+  const handleBackFromDetail = useCallback(() => {
+    if (onViewWorkDetail) {
+      onViewWorkDetail(null);
+    } else {
+      setInternalSelectedWorkId(null);
+    }
+  }, [onViewWorkDetail]);
 
   const funnelStats = useMemo(
     () => calculateFunnelStats(works, orders, inquiries, statements),
@@ -93,7 +112,7 @@ function SalesFunnel({
         orders={orders}
         inquiries={inquiries}
         statements={statements}
-        onBack={() => setSelectedWorkId(null)}
+        onBack={handleBackFromDetail}
         onOpenOrderForWork={onOpenOrderForWork}
       />
     );
@@ -281,11 +300,7 @@ function SalesFunnel({
                     className="funnel-work-card"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (onViewWorkDetail) {
-                        onViewWorkDetail(work.id);
-                      } else {
-                        setSelectedWorkId(work.id);
-                      }
+                      handleSelectWork(work.id);
                     }}
                   >
                     <strong>{work.title}</strong>
@@ -322,11 +337,7 @@ function SalesFunnel({
                         className="ghost small"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (onViewWorkDetail) {
-                            onViewWorkDetail(work.id);
-                          } else {
-                            setSelectedWorkId(work.id);
-                          }
+                          handleSelectWork(work.id);
                         }}
                       >
                         查看漏斗详情
@@ -349,11 +360,7 @@ function SalesFunnel({
             statements={statements}
             onViewWorkDetail={(workId) => {
               setShowAnomalies(false);
-              if (onViewWorkDetail) {
-                onViewWorkDetail(workId);
-              } else {
-                setSelectedWorkId(workId);
-              }
+              handleSelectWork(workId);
             }}
           />
         </div>
