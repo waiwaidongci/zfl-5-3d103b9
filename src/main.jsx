@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, Filter, MessageCircle, MessageSquare, Percent, Phone, Plus, Search, Tag, User, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, FileUp, Filter, MessageCircle, MessageSquare, Percent, Phone, Plus, Search, Tag, User, XCircle } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -53,6 +53,155 @@ function useStorage(key, initial) {
 }
 
 const INQUIRY_STATUS = ['待跟进', '跟进中', '已成交', '已放弃'];
+const VALID_EXHIBIT = ['展出中', '库房', '借展', '退回'];
+const VALID_SALE = ['待售', '已预订', '已售'];
+const CSV_COLUMNS = ['艺术家', '作品名', '价格', '入库日期', '展态', '销售状态'];
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+  if (lines.length === 0) return { header: null, rows: [] };
+
+  const detectDelimiter = (line) => {
+    const candidates = [',', '\t', ';', '，'];
+    let best = ',';
+    let maxCount = -1;
+    for (const d of candidates) {
+      const count = line.split(d).length;
+      if (count > maxCount) {
+        maxCount = count;
+        best = d;
+      }
+    }
+    return best;
+  };
+
+  const delimiter = detectDelimiter(lines[0]);
+  const parseLine = (line) => line.split(delimiter).map(cell => cell.trim().replace(/^"|"$/g, ''));
+
+  const firstLine = parseLine(lines[0]);
+  const hasHeader = firstLine.some(cell => CSV_COLUMNS.includes(cell));
+
+  let headerMap = null;
+  let dataStart = 0;
+
+  if (hasHeader) {
+    headerMap = {};
+    firstLine.forEach((cell, idx) => {
+      const normalized = cell.trim();
+      if (CSV_COLUMNS.includes(normalized)) {
+        headerMap[normalized] = idx;
+      }
+    });
+    dataStart = 1;
+  }
+
+  const rows = [];
+  for (let i = dataStart; i < lines.length; i++) {
+    const cells = parseLine(lines[i]);
+    if (cells.every(c => c === '')) continue;
+
+    let row;
+    if (headerMap) {
+      row = {
+        artist: cells[headerMap['艺术家']] ?? '',
+        title: cells[headerMap['作品名']] ?? '',
+        price: cells[headerMap['价格']] ?? '',
+        inDate: cells[headerMap['入库日期']] ?? '',
+        exhibit: cells[headerMap['展态']] ?? '',
+        sale: cells[headerMap['销售状态']] ?? '',
+        rawLine: lines[i],
+        lineNumber: i + 1
+      };
+    } else {
+      row = {
+        artist: cells[0] ?? '',
+        title: cells[1] ?? '',
+        price: cells[2] ?? '',
+        inDate: cells[3] ?? '',
+        exhibit: cells[4] ?? '',
+        sale: cells[5] ?? '',
+        rawLine: lines[i],
+        lineNumber: i + 1
+      };
+    }
+    rows.push(row);
+  }
+
+  return { header: hasHeader ? firstLine : null, rows, headerMap };
+}
+
+function validateRow(row, existingTitles, existingArtists, batchTitles) {
+  const errors = [];
+
+  if (!row.artist || row.artist.trim() === '') {
+    errors.push('缺少艺术家');
+  }
+
+  const artistName = row.artist.trim();
+  const artistExists = existingArtists.has(artistName);
+  if (artistName && !artistExists) {
+    errors.push(`艺术家"${artistName}"未在系统中登记`);
+  }
+
+  if (!row.title || row.title.trim() === '') {
+    errors.push('缺少作品名');
+  }
+
+  const title = row.title.trim();
+  if (title) {
+    if (existingTitles.has(title)) {
+      errors.push(`作品名"${title}"已存在`);
+    }
+    if (batchTitles.has(title)) {
+      errors.push(`作品名"${title}"在导入列表中重复`);
+    }
+  }
+
+  const priceRaw = row.price.trim();
+  let price = null;
+  if (priceRaw === '') {
+    errors.push('缺少价格');
+  } else {
+    const cleaned = priceRaw.replace(/[￥¥,，\s]/g, '');
+    price = Number(cleaned);
+    if (isNaN(price) || price <= 0 || !isFinite(price)) {
+      errors.push(`价格"${row.price}"格式非法`);
+    }
+  }
+
+  let inDate = row.inDate.trim();
+  if (inDate && !/^\d{4}-\d{2}-\d{2}$/.test(inDate)) {
+    const parsed = new Date(inDate);
+    if (isNaN(parsed.getTime())) {
+      errors.push(`入库日期"${row.inDate}"格式非法，应为YYYY-MM-DD`);
+    } else {
+      inDate = parsed.toISOString().slice(0, 10);
+    }
+  }
+
+  const exhibit = row.exhibit.trim() || '展出中';
+  if (exhibit && !VALID_EXHIBIT.includes(exhibit)) {
+    errors.push(`展态"${row.exhibit}"无效，应为：${VALID_EXHIBIT.join('、')}`);
+  }
+
+  const sale = row.sale.trim() || '待售';
+  if (sale && !VALID_SALE.includes(sale)) {
+    errors.push(`销售状态"${row.sale}"无效，应为：${VALID_SALE.join('、')}`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    cleaned: {
+      artist: artistName,
+      title,
+      price: price ?? 0,
+      inDate: inDate || iso(0),
+      exhibit: VALID_EXHIBIT.includes(exhibit) ? exhibit : '展出中',
+      sale: VALID_SALE.includes(sale) ? sale : '待售'
+    }
+  };
+}
 
 function App() {
   const [artists, setArtists] = useStorage('zfl-5-artists', seedArtists);
@@ -69,6 +218,9 @@ function App() {
   const [loanForm, setLoanForm] = useState({ workId: '', borrower: '', loanDate: iso(0), expectedReturnDate: iso(7), contactPerson: '', notes: '' });
   const [showLoanForm, setShowLoanForm] = useState(false);
   const [loanFilterRaw, setLoanFilterRaw] = useStorage('zfl-5-loan-filter', '全部作品');
+  const [showBatchImport, setShowBatchImport] = useState(false);
+  const [batchCsvText, setBatchCsvText] = useState('');
+  const [batchPreview, setBatchPreview] = useState(null);
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -256,6 +408,65 @@ function App() {
     }
   }
 
+  function previewBatchImport() {
+    if (!batchCsvText.trim()) {
+      setBatchPreview(null);
+      return;
+    }
+
+    const parsed = parseCSV(batchCsvText);
+    const existingTitles = new Set(works.map((w) => w.title));
+    const existingArtists = new Set(artists.map((a) => a.name));
+    const batchTitles = new Set();
+    const validRows = [];
+    const errorRows = [];
+
+    parsed.rows.forEach((row) => {
+      const result = validateRow(row, existingTitles, existingArtists, batchTitles);
+      if (result.valid) {
+        batchTitles.add(result.cleaned.title);
+        validRows.push({ ...row, cleaned: result.cleaned });
+      } else {
+        errorRows.push({ ...row, errors: result.errors });
+      }
+    });
+
+    setBatchPreview({
+      validRows,
+      errorRows,
+      totalRows: parsed.rows.length,
+      header: parsed.header,
+      headerMap: parsed.headerMap
+    });
+  }
+
+  function confirmBatchImport() {
+    if (!batchPreview || batchPreview.validRows.length === 0) return;
+
+    const newWorks = batchPreview.validRows.map((row) => ({
+      id: crypto.randomUUID(),
+      artist: row.cleaned.artist,
+      title: row.cleaned.title,
+      price: row.cleaned.price,
+      inDate: row.cleaned.inDate,
+      exhibit: row.cleaned.exhibit,
+      sale: row.cleaned.sale,
+      settlement: '未结算',
+      saleDate: null,
+      settlementDate: null
+    }));
+
+    setWorks([...newWorks, ...works]);
+    setBatchCsvText('');
+    setBatchPreview(null);
+    setShowBatchImport(false);
+  }
+
+  function clearBatchImport() {
+    setBatchCsvText('');
+    setBatchPreview(null);
+  }
+
   return (
     <main>
       <header className="hero">
@@ -311,6 +522,7 @@ function App() {
             <label><Filter size={16} /><select value={status} onChange={(e) => setStatus(e.target.value)}><option>全部展态</option><option>展出中</option><option>库房</option><option>借展</option><option>退回</option></select></label>
             <button className="ghost" onClick={() => setShowLoanForm(true)}><Plus size={14} /> 登记借展</button>
             <button className="ghost" onClick={() => setShowInquiryForm(true)}><Plus size={14} /> 登记询价</button>
+            <button className="ghost" onClick={() => setShowBatchImport(!showBatchImport)}><FileUp size={14} /> 批量导入</button>
           </div>
         </div>
         <div className="works">
@@ -353,6 +565,131 @@ function App() {
           })}
         </div>
       </section>
+
+      {showBatchImport && (
+        <section className="panel inquiry-form-panel">
+          <div className="panel-header">
+            <h2><FileUp size={18} />作品批量导入预览</h2>
+            <button className="ghost small" onClick={() => { setShowBatchImport(false); clearBatchImport(); }}>收起</button>
+          </div>
+          <div className="batch-import">
+            <div className="form-row">
+              <label><span className="label-icon"><FileUp size={14} /></span>
+                <textarea
+                  className="batch-textarea"
+                  placeholder={'粘贴CSV格式数据，支持以下列顺序：&#10;艺术家,作品名,价格,入库日期,展态,销售状态&#10;示例：&#10;谢青岚,山水之间,12800,2026-01-15,展出中,待售&#10;赵以南,静物写生,8600,2026-01-10,库房,已预订'}
+                  value={batchCsvText}
+                  onChange={(e) => setBatchCsvText(e.target.value)}
+                  rows={6}
+                />
+              </label>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="ghost" onClick={clearBatchImport}>清空</button>
+              <button type="button" onClick={previewBatchImport}>解析预览</button>
+            </div>
+
+            {batchPreview && (
+              <div className="batch-preview">
+                <div className="batch-summary">
+                  <span className="batch-summary-item valid">
+                    <CheckCircle2 size={16} /> 可导入 {batchPreview.validRows.length} 行
+                  </span>
+                  <span className="batch-summary-item error">
+                    <XCircle size={16} /> 错误行 {batchPreview.errorRows.length} 行
+                  </span>
+                  <span className="batch-summary-item total">
+                    共解析 {batchPreview.totalRows} 行
+                  </span>
+                </div>
+
+                {batchPreview.header && (
+                  <div className="batch-header-info">
+                    <span className="batch-header-detected">
+                      已检测到表头：{batchPreview.header.join(' | ')}
+                    </span>
+                  </div>
+                )}
+
+                {batchPreview.validRows.length > 0 && (
+                  <div className="batch-section">
+                    <h3 className="batch-section-title valid-title"><CheckCircle2 size={16} /> 可导入作品</h3>
+                    <div className="batch-table-container">
+                      <table className="batch-table">
+                        <thead>
+                          <tr>
+                            <th>艺术家</th>
+                            <th>作品名</th>
+                            <th>价格</th>
+                            <th>入库日期</th>
+                            <th>展态</th>
+                            <th>销售状态</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {batchPreview.validRows.map((row, idx) => (
+                            <tr key={idx} className="batch-row-valid">
+                              <td>{row.cleaned.artist}</td>
+                              <td>{row.cleaned.title}</td>
+                              <td>¥{Number(row.cleaned.price).toLocaleString()}</td>
+                              <td>{row.cleaned.inDate}</td>
+                              <td>{row.cleaned.exhibit}</td>
+                              <td>{row.cleaned.sale}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {batchPreview.errorRows.length > 0 && (
+                  <div className="batch-section">
+                    <h3 className="batch-section-title error-title"><XCircle size={16} /> 错误行（将被跳过）</h3>
+                    <div className="batch-table-container">
+                      <table className="batch-table">
+                        <thead>
+                          <tr>
+                            <th style={{width: '60px'}}>行号</th>
+                            <th>原始内容</th>
+                            <th>错误原因</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {batchPreview.errorRows.map((row, idx) => (
+                            <tr key={idx} className="batch-row-error">
+                              <td>{row.lineNumber}</td>
+                              <td className="batch-raw-cell">{row.rawLine}</td>
+                              <td className="batch-error-cell">
+                                {row.errors.map((err, i) => (
+                                  <span key={i} className="batch-error-tag"><AlertCircle size={12} /> {err}</span>
+                                ))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {batchPreview.validRows.length > 0 && (
+                  <div className="form-actions">
+                    <button type="button" className="ghost" onClick={() => setBatchPreview(null)}>取消</button>
+                    <button type="button" onClick={confirmBatchImport}>
+                      确认导入 {batchPreview.validRows.length} 条作品
+                    </button>
+                  </div>
+                )}
+
+                {batchPreview.totalRows > 0 && batchPreview.validRows.length === 0 && (
+                  <p className="empty-tip">没有可导入的作品，请检查数据格式后重试。</p>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {showInquiryForm && (
         <section className="panel inquiry-form-panel">
