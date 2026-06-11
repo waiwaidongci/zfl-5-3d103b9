@@ -1066,13 +1066,19 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
-  function analyzeBackup(backup) {
-    const currentData = {};
-    for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
-      const raw = localStorage.getItem(storageKey);
-      currentData[key] = raw ? JSON.parse(raw) : [];
-    }
+  function getCurrentDataFromState() {
+    return {
+      artists: JSON.parse(JSON.stringify(artists)),
+      works: JSON.parse(JSON.stringify(works)),
+      inquiries: JSON.parse(JSON.stringify(inquiries)),
+      orders: JSON.parse(JSON.stringify(orders)),
+      statements: JSON.parse(JSON.stringify(statements)),
+      loans: JSON.parse(JSON.stringify(loans)),
+      inventoryTasks: JSON.parse(JSON.stringify(inventoryTasks))
+    };
+  }
 
+  function analyzeBackup(backup, currentData) {
     const currentIdSets = {};
     for (const entityType of Object.keys(STORAGE_KEYS)) {
       currentIdSets[entityType] = new Set(currentData[entityType].map((r) => r.id));
@@ -1164,7 +1170,7 @@ function App() {
       };
     }
 
-    return { entities: result, totalAdd, totalOverwrite, totalSkip, totalRecords: totalAdd + totalOverwrite + totalSkip, warnings, backupVersion, exportedAt: backup.exportedAt };
+    return { entities: result, totalAdd, totalOverwrite, totalSkip, totalRecords: totalAdd + totalOverwrite + totalSkip, warnings, backupVersion, exportedAt: backup.exportedAt, snapshot: currentData };
   }
 
   function handleImportFile(file) {
@@ -1182,7 +1188,7 @@ function App() {
         if (!backup.data || typeof backup.data !== 'object') {
           throw new Error('备份文件格式异常：缺少 data 字段');
         }
-        const preview = analyzeBackup(backup);
+        const preview = analyzeBackup(backup, getCurrentDataFromState());
         setMigrationPreview(preview);
         setMigrationStep('preview');
       } catch (err) {
@@ -1200,11 +1206,7 @@ function App() {
   function confirmRestore() {
     if (!migrationPreview) return;
 
-    const currentData = {};
-    for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
-      const raw = localStorage.getItem(storageKey);
-      currentData[key] = raw ? JSON.parse(raw) : [];
-    }
+    const currentData = migrationPreview.snapshot || getCurrentDataFromState();
 
     const restoredData = {};
     for (const [entityType, analysis] of Object.entries(migrationPreview.entities)) {
