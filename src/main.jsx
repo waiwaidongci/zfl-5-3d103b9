@@ -34,9 +34,9 @@ const seedArtists = [
 ];
 
 const seedWorks = [
-  { id: 'seed-work-yhtj', artist: '谢青岚', title: '雨后天井', price: 12800, inDate: iso(-20), exhibit: '展出中', sale: '待售', settlement: '未结算' },
-  { id: 'seed-work-jqcy03', artist: '赵以南', title: '旧墙采样03', price: 8600, inDate: iso(-12), exhibit: '库房', sale: '已售', settlement: '待结算' },
-  { id: 'seed-work-zxfs', artist: '谢青岚', title: '窄巷风声', price: 16600, inDate: iso(-5), exhibit: '借展', sale: '待售', settlement: '未结算' }
+  { id: 'seed-work-yhtj', artist: '谢青岚', title: '雨后天井', price: 12800, inDate: iso(-20), exhibit: '展出中', sale: '待售', settlement: '未结算', saleDate: null, settlementDate: null },
+  { id: 'seed-work-jqcy03', artist: '赵以南', title: '旧墙采样03', price: 8600, inDate: iso(-12), exhibit: '库房', sale: '已售', settlement: '待结算', saleDate: iso(-3), settlementDate: null },
+  { id: 'seed-work-zxfs', artist: '谢青岚', title: '窄巷风声', price: 16600, inDate: iso(-5), exhibit: '借展', sale: '待售', settlement: '未结算', saleDate: null, settlementDate: null }
 ];
 
 function useStorage(key, initial) {
@@ -94,34 +94,35 @@ function App() {
     const currentYear = now.getFullYear();
 
     const isThisMonth = (dateStr) => {
+      if (!dateStr) return false;
       const d = new Date(dateStr);
       return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
     };
 
-    const soldWorks = works.filter((w) => w.sale === '已售');
-    const pendingWorks = works.filter((w) => w.settlement === '待结算');
-    const settledWorks = works.filter((w) => w.settlement === '已结算');
+    const soldThisMonth = works.filter((w) => w.sale === '已售' && isThisMonth(w.saleDate));
+    const settledThisMonth = works.filter((w) => w.settlement === '已结算' && isThisMonth(w.settlementDate));
+    const pendingThisMonth = works.filter((w) => w.sale === '已售' && w.settlement === '待结算' && isThisMonth(w.saleDate));
 
-    const soldAmount = soldWorks.reduce((sum, w) => sum + Number(w.price || 0), 0);
-    const pendingAmount = pendingWorks.reduce((sum, w) => sum + Number(w.price || 0), 0);
-    const settledAmount = settledWorks.reduce((sum, w) => sum + Number(w.price || 0), 0);
+    const soldAmount = soldThisMonth.reduce((sum, w) => sum + Number(w.price || 0), 0);
+    const pendingAmount = pendingThisMonth.reduce((sum, w) => sum + Number(w.price || 0), 0);
+    const settledAmount = settledThisMonth.reduce((sum, w) => sum + Number(w.price || 0), 0);
 
-    const estimatedCommission = pendingWorks.reduce((sum, w) => {
+    const estimatedCommission = pendingThisMonth.reduce((sum, w) => {
       const rate = commissionRateMap[w.artist] ?? DEFAULT_COMMISSION_RATE;
       return sum + Number(w.price || 0) * rate;
     }, 0);
 
-    const settledCommission = settledWorks.reduce((sum, w) => {
+    const settledCommission = settledThisMonth.reduce((sum, w) => {
       const rate = commissionRateMap[w.artist] ?? DEFAULT_COMMISSION_RATE;
       return sum + Number(w.price || 0) * rate;
     }, 0);
 
     return {
-      pendingCount: pendingWorks.length,
+      pendingCount: pendingThisMonth.length,
       pendingAmount,
-      settledCount: settledWorks.length,
+      settledCount: settledThisMonth.length,
       settledAmount,
-      soldCount: soldWorks.length,
+      soldCount: soldThisMonth.length,
       soldAmount,
       estimatedCommission,
       settledCommission,
@@ -176,7 +177,7 @@ function App() {
   function addWork(event) {
     event.preventDefault();
     if (!workForm.title.trim() || !workForm.artist) return;
-    setWorks([{ id: crypto.randomUUID(), ...workForm, price: Number(workForm.price || 0) }, ...works]);
+    setWorks([{ id: crypto.randomUUID(), ...workForm, price: Number(workForm.price || 0), saleDate: null, settlementDate: null }, ...works]);
     setWorkForm({ ...workForm, title: '', price: '', inDate: iso(0), exhibit: '展出中', sale: '待售', settlement: '未结算' });
   }
 
@@ -332,8 +333,14 @@ function App() {
                   </div>
                 )}
                 <div className="actions">
-                  <button onClick={() => updateWork(work.id, { sale: work.sale === '已售' ? '待售' : '已售', settlement: work.sale === '已售' ? '未结算' : '待结算' })}>{work.sale === '已售' ? '撤回销售' : '标记已售'}</button>
-                  <button className="ghost" onClick={() => updateWork(work.id, { settlement: '已结算' })}>完成结算</button>
+                  <button onClick={() => {
+                    const isSold = work.sale === '已售';
+                    const patch = isSold
+                      ? { sale: '待售', settlement: '未结算', saleDate: null, settlementDate: null }
+                      : { sale: '已售', settlement: '待结算', saleDate: iso(0) };
+                    updateWork(work.id, patch);
+                  }}>{work.sale === '已售' ? '撤回销售' : '标记已售'}</button>
+                  <button className="ghost" onClick={() => updateWork(work.id, { settlement: '已结算', settlementDate: iso(0) })}>完成结算</button>
                   <button className="outline" onClick={() => openLoanForWork(work.id)}>
                     <ArrowLeftRight size={14} /> 登记借展
                   </button>
