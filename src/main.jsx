@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RotateCcw, Search, TrendingUp, Upload, User, XCircle, ClipboardList, Eye, AlertTriangle, Package } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RotateCcw, Search, Tag, TrendingUp, Upload, User, XCircle, ClipboardList, Eye, AlertTriangle, Package, Shield } from 'lucide-react';
 import './styles.css';
 import CustomerList from './CustomerList.jsx';
+import DataHealthCenter from './DataHealthCenter.jsx';
 import { buildCustomerProfile } from './customerUtils.js';
 
 const iso = (offset = 0) => {
@@ -345,6 +346,7 @@ function App() {
   const [migrationPreview, setMigrationPreview] = useState(null);
   const [migrationStep, setMigrationStep] = useState('idle');
   const [migrationError, setMigrationError] = useState('');
+  const [showHealthCenter, setShowHealthCenter] = useState(false);
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -1255,6 +1257,16 @@ function App() {
     setMigrationPreview(null);
     setMigrationStep('idle');
     setMigrationError('');
+  }
+
+  function handleFixApplied(updatedData) {
+    if (updatedData.artists) setArtists(updatedData.artists);
+    if (updatedData.works) setWorks(updatedData.works);
+    if (updatedData.inquiries) setInquiries(updatedData.inquiries);
+    if (updatedData.orders) setOrders(updatedData.orders);
+    if (updatedData.statements) setStatements(updatedData.statements);
+    if (updatedData.loans) setLoans(updatedData.loans);
+    if (updatedData.inventoryTasks) setInventoryTasks(updatedData.inventoryTasks);
   }
 
   const ENTITY_LABELS = {
@@ -2341,6 +2353,7 @@ function App() {
           <h2><Database size={18} />数据迁移与恢复</h2>
           <div></div>
           <div className="toolbar-right">
+            <button className="ghost" onClick={() => setShowHealthCenter(!showHealthCenter)}><Shield size={14} /> 数据健康中心</button>
             <button className="ghost" onClick={exportBackup}><Download size={14} /> 导出备份</button>
             <button className="ghost" onClick={() => setShowMigration(!showMigration)}><Upload size={14} /> 导入恢复</button>
           </div>
@@ -2492,6 +2505,18 @@ function App() {
             </div>
           )}
         </section>
+      )}
+
+      {showHealthCenter && (
+        <DataHealthCenter
+          works={works}
+          orders={orders}
+          inquiries={inquiries}
+          loans={loans}
+          statements={statements}
+          inventoryTasks={inventoryTasks}
+          onFixApplied={handleFixApplied}
+        />
       )}
 
       <section className="bottom">
