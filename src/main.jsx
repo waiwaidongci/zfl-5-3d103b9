@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, Search, Tag, TrendingUp, User, XCircle, ClipboardList, Eye, AlertTriangle, Package } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RotateCcw, Search, TrendingUp, Upload, User, XCircle, ClipboardList, Eye, AlertTriangle, Package } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -339,6 +339,10 @@ function App() {
   const [inventoryFilter, setInventoryFilter] = useState('全部任务');
   const [inventoryQuery, setInventoryQuery] = useState('');
   const [inventoryItemFilter, setInventoryItemFilter] = useState('全部状态');
+  const [showMigration, setShowMigration] = useState(false);
+  const [migrationPreview, setMigrationPreview] = useState(null);
+  const [migrationStep, setMigrationStep] = useState('idle');
+  const [migrationError, setMigrationError] = useState('');
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -1007,6 +1011,253 @@ function App() {
     setBatchCsvText('');
     setBatchPreview(null);
   }
+
+  const BACKUP_VERSION = 1;
+  const STORAGE_KEYS = {
+    artists: 'zfl-5-artists',
+    works: 'zfl-5-works',
+    inquiries: 'zfl-5-inquiries',
+    orders: 'zfl-5-orders',
+    statements: 'zfl-5-statements',
+    loans: 'zfl-5-loans',
+    inventoryTasks: 'zfl-5-inventory-tasks'
+  };
+
+  const FIELD_DEFAULTS = {
+    artists: { id: '', name: '', phone: '', style: '', note: '' },
+    works: { id: '', artist: '', title: '', price: 0, inDate: '', exhibit: '展出中', sale: '待售', settlement: '未结算', saleDate: null, settlementDate: null },
+    inquiries: { id: '', workId: '', workTitle: '', customerName: '', customerPhone: '', intendedPrice: 0, remark: '', status: '待跟进', createdAt: '' },
+    orders: { id: '', workId: '', workTitle: '', workArtist: '', customerName: '', customerPhone: '', dealPrice: 0, deposit: 0, balanceStatus: '待支付', dealDate: '', note: '', createdAt: '', cancelledAt: null },
+    statements: { id: '', artist: '', startDate: '', endDate: '', items: [], totalDealPrice: 0, totalCommission: 0, totalPayable: 0, commissionRate: 35, confirmed: false, confirmedAt: null, createdAt: '' },
+    loans: { id: '', workId: '', workTitle: '', workArtist: '', borrower: '', loanDate: '', expectedReturnDate: '', contactPerson: '', notes: '', returnedAt: null, createdAt: '' },
+    inventoryTasks: { id: '', name: '', note: '', status: '进行中', items: [], totalCount: 0, checkedCount: 0, exceptionCount: 0, missingCount: 0, createdAt: '', completedAt: null }
+  };
+
+  function normalizeRecord(entityType, record) {
+    const defaults = FIELD_DEFAULTS[entityType];
+    if (!defaults) return record;
+    const normalized = { ...record };
+    for (const [key, defaultVal] of Object.entries(defaults)) {
+      if (!(key in normalized) || normalized[key] === undefined) {
+        normalized[key] = defaultVal;
+      }
+    }
+    return normalized;
+  }
+
+  function exportBackup() {
+    const data = {};
+    for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
+      const raw = localStorage.getItem(storageKey);
+      data[key] = raw ? JSON.parse(raw) : [];
+    }
+    const backup = {
+      version: BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      app: 'zfl-5-gallery-consignment',
+      data
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `画廊寄售备份_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function analyzeBackup(backup) {
+    const currentData = {};
+    for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
+      const raw = localStorage.getItem(storageKey);
+      currentData[key] = raw ? JSON.parse(raw) : [];
+    }
+
+    const currentIdSets = {};
+    for (const entityType of Object.keys(STORAGE_KEYS)) {
+      currentIdSets[entityType] = new Set(currentData[entityType].map((r) => r.id));
+    }
+
+    const currentNameSets = {};
+    currentNameSets.artists = new Set(currentData.artists.map((a) => a.name));
+    currentNameSets.works = new Set(currentData.works.map((w) => `${w.artist}||${w.title}`));
+
+    const result = {};
+    let totalAdd = 0;
+    let totalOverwrite = 0;
+    let totalSkip = 0;
+    const warnings = [];
+
+    const backupVersion = backup.version || 0;
+    if (backupVersion < BACKUP_VERSION) {
+      warnings.push(`备份版本 v${backupVersion} 低于当前版本 v${BACKUP_VERSION}，缺失字段将自动填充默认值`);
+    }
+
+    for (const entityType of Object.keys(STORAGE_KEYS)) {
+      const backupRecords = (backup.data && backup.data[entityType]) || [];
+      const analyzed = [];
+
+      for (const rawRecord of backupRecords) {
+        const record = normalizeRecord(entityType, rawRecord);
+        const currentIdSet = currentIdSets[entityType];
+
+        if (currentIdSet.has(record.id)) {
+          const currentRecord = currentData[entityType].find((r) => r.id === record.id);
+          const isSame = JSON.stringify(record) === JSON.stringify(currentRecord);
+          analyzed.push({
+            action: 'overwrite',
+            record,
+            currentRecord,
+            reason: isSame ? '内容一致，覆盖无变化' : 'ID已存在，将覆盖现有记录'
+          });
+          totalOverwrite++;
+        } else if (entityType === 'artists' && record.name && currentNameSets.artists.has(record.name)) {
+          const existingArtist = currentData.artists.find((a) => a.name === record.name);
+          analyzed.push({
+            action: 'skip',
+            record,
+            currentRecord: existingArtist,
+            reason: `艺术家「${record.name}」已存在（ID不同），将跳过`
+          });
+          totalSkip++;
+        } else if (entityType === 'works' && record.artist && record.title && currentNameSets.works.has(`${record.artist}||${record.title}`)) {
+          const existingWork = currentData.works.find((w) => w.artist === record.artist && w.title === record.title);
+          analyzed.push({
+            action: 'skip',
+            record,
+            currentRecord: existingWork,
+            reason: `作品「${record.artist} - ${record.title}」已存在（ID不同），将跳过`
+          });
+          totalSkip++;
+        } else {
+          analyzed.push({
+            action: 'add',
+            record,
+            currentRecord: null,
+            reason: '新记录，将添加'
+          });
+          totalAdd++;
+        }
+      }
+
+      const missingFields = [];
+      if (backupRecords.length > 0) {
+        const defaults = FIELD_DEFAULTS[entityType];
+        const sampleRaw = backupRecords[0];
+        for (const key of Object.keys(defaults)) {
+          if (!(key in sampleRaw)) {
+            missingFields.push(key);
+          }
+        }
+      }
+      if (missingFields.length > 0) {
+        warnings.push(`「${entityType}」缺少字段：${missingFields.join('、')}，将填充默认值`);
+      }
+
+      result[entityType] = {
+        records: analyzed,
+        addCount: analyzed.filter((a) => a.action === 'add').length,
+        overwriteCount: analyzed.filter((a) => a.action === 'overwrite').length,
+        skipCount: analyzed.filter((a) => a.action === 'skip').length,
+        totalCount: analyzed.length,
+        missingFields
+      };
+    }
+
+    return { entities: result, totalAdd, totalOverwrite, totalSkip, totalRecords: totalAdd + totalOverwrite + totalSkip, warnings, backupVersion, exportedAt: backup.exportedAt };
+  }
+
+  function handleImportFile(file) {
+    setMigrationError('');
+    setMigrationPreview(null);
+    setMigrationStep('loading');
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const backup = JSON.parse(e.target.result);
+        if (!backup.app || backup.app !== 'zfl-5-gallery-consignment') {
+          throw new Error('不是有效的画廊寄售管理备份文件');
+        }
+        if (!backup.data || typeof backup.data !== 'object') {
+          throw new Error('备份文件格式异常：缺少 data 字段');
+        }
+        const preview = analyzeBackup(backup);
+        setMigrationPreview(preview);
+        setMigrationStep('preview');
+      } catch (err) {
+        setMigrationError(err.message || '文件解析失败');
+        setMigrationStep('error');
+      }
+    };
+    reader.onerror = () => {
+      setMigrationError('文件读取失败');
+      setMigrationStep('error');
+    };
+    reader.readAsText(file);
+  }
+
+  function confirmRestore() {
+    if (!migrationPreview) return;
+
+    const currentData = {};
+    for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
+      const raw = localStorage.getItem(storageKey);
+      currentData[key] = raw ? JSON.parse(raw) : [];
+    }
+
+    const restoredData = {};
+    for (const [entityType, analysis] of Object.entries(migrationPreview.entities)) {
+      const currentRecords = [...currentData[entityType]];
+      const overwrittenIds = new Set();
+
+      for (const item of analysis.records) {
+        if (item.action === 'add') {
+          currentRecords.push(item.record);
+        } else if (item.action === 'overwrite') {
+          overwrittenIds.add(item.record.id);
+        }
+      }
+
+      restoredData[entityType] = currentRecords.map((r) => {
+        if (overwrittenIds.has(r.id)) {
+          const overwriteItem = analysis.records.find((a) => a.action === 'overwrite' && a.record.id === r.id);
+          return overwriteItem ? overwriteItem.record : r;
+        }
+        return r;
+      });
+    }
+
+    for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
+      localStorage.setItem(storageKey, JSON.stringify(restoredData[key]));
+    }
+
+    setArtists(restoredData.artists);
+    setWorks(restoredData.works);
+    setInquiries(restoredData.inquiries);
+    setOrders(restoredData.orders);
+    setStatements(restoredData.statements);
+    setLoans(restoredData.loans);
+    setInventoryTasks(restoredData.inventoryTasks);
+
+    setMigrationStep('done');
+  }
+
+  function resetMigration() {
+    setMigrationPreview(null);
+    setMigrationStep('idle');
+    setMigrationError('');
+  }
+
+  const ENTITY_LABELS = {
+    artists: '艺术家',
+    works: '作品',
+    inquiries: '询价',
+    orders: '订单',
+    statements: '对账单',
+    loans: '借展',
+    inventoryTasks: '盘点任务'
+  };
 
   return (
     <main>
@@ -2069,6 +2320,164 @@ function App() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      <section className="panel">
+        <div className="toolbar">
+          <h2><Database size={18} />数据迁移与恢复</h2>
+          <div></div>
+          <div className="toolbar-right">
+            <button className="ghost" onClick={exportBackup}><Download size={14} /> 导出备份</button>
+            <button className="ghost" onClick={() => setShowMigration(!showMigration)}><Upload size={14} /> 导入恢复</button>
+          </div>
+        </div>
+        <div className="migration-info">
+          <p><Info size={14} /> 将当前所有数据（艺术家、作品、询价、订单、对账单、借展、盘点）导出为JSON备份文件，或从备份文件恢复数据。恢复前会展示预览，说明新增、覆盖、跳过的记录。</p>
+        </div>
+      </section>
+
+      {showMigration && (
+        <section className="panel inquiry-form-panel">
+          <div className="panel-header">
+            <h2><Upload size={18} />从备份文件恢复数据</h2>
+            <button className="ghost small" onClick={() => { setShowMigration(false); resetMigration(); }}>收起</button>
+          </div>
+
+          {migrationStep === 'idle' && (
+            <div className="migration-upload-area">
+              <label className="migration-file-label">
+                <input
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleImportFile(e.target.files[0]);
+                    }
+                    e.target.value = '';
+                  }}
+                />
+                <div className="migration-dropzone">
+                  <Upload size={32} />
+                  <span>点击选择备份文件（.json）</span>
+                  <span className="migration-hint">支持从导出功能生成的 JSON 备份文件</span>
+                </div>
+              </label>
+            </div>
+          )}
+
+          {migrationStep === 'error' && (
+            <div className="form-errors">
+              <span className="form-error-tag"><AlertCircle size={12} /> {migrationError}</span>
+              <button className="ghost small" onClick={resetMigration}>重试</button>
+            </div>
+          )}
+
+          {migrationStep === 'done' && (
+            <div className="migration-success">
+              <CheckCircle2 size={24} />
+              <strong>数据恢复完成</strong>
+              <span>已新增 {migrationPreview.totalAdd} 条、覆盖 {migrationPreview.totalOverwrite} 条、跳过 {migrationPreview.totalSkip} 条记录</span>
+              <button className="ghost small" onClick={resetMigration}>继续操作</button>
+            </div>
+          )}
+
+          {migrationStep === 'preview' && migrationPreview && (
+            <div className="migration-preview">
+              <div className="migration-preview-header">
+                <div className="migration-preview-info">
+                  <span className="migration-meta"><Calendar size={14} /> 备份时间：{migrationPreview.exportedAt ? new Date(migrationPreview.exportedAt).toLocaleString('zh-CN') : '未知'}</span>
+                  <span className="migration-meta"><Database size={14} /> 备份版本：v{migrationPreview.backupVersion || 0}</span>
+                </div>
+              </div>
+
+              <div className="migration-summary">
+                <span className="migration-summary-item add"><Plus size={16} /> 新增 {migrationPreview.totalAdd} 条</span>
+                <span className="migration-summary-item overwrite"><RotateCcw size={16} /> 覆盖 {migrationPreview.totalOverwrite} 条</span>
+                <span className="migration-summary-item skip"><XCircle size={16} /> 跳过 {migrationPreview.totalSkip} 条</span>
+                <span className="migration-summary-item total">共 {migrationPreview.totalRecords} 条</span>
+              </div>
+
+              {migrationPreview.warnings.length > 0 && (
+                <div className="migration-warnings">
+                  <h3><AlertTriangle size={16} /> 注意事项</h3>
+                  <ul>
+                    {migrationPreview.warnings.map((w, idx) => (
+                      <li key={idx}>{w}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {Object.entries(migrationPreview.entities).map(([entityType, analysis]) => {
+                if (analysis.totalCount === 0) return null;
+                return (
+                  <div key={entityType} className="migration-entity-section">
+                    <h3 className="migration-entity-title">{ENTITY_LABELS[entityType]}（{analysis.totalCount}条）</h3>
+                    <div className="migration-entity-summary">
+                      <span className="mig-add">新增 {analysis.addCount}</span>
+                      <span className="mig-overwrite">覆盖 {analysis.overwriteCount}</span>
+                      <span className="mig-skip">跳过 {analysis.skipCount}</span>
+                    </div>
+                    {analysis.records.length > 0 && (
+                      <details className="migration-details">
+                        <summary>查看明细</summary>
+                        <div className="migration-table-container">
+                          <table className="migration-table">
+                            <thead>
+                              <tr>
+                                <th>操作</th>
+                                <th>记录摘要</th>
+                                <th>说明</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {analysis.records.map((item, idx) => (
+                                <tr key={idx} className={`migration-row-${item.action}`}>
+                                  <td>
+                                    <span className={`migration-action-tag migration-action-${item.action}`}>
+                                      {item.action === 'add' && <Plus size={12} />}
+                                      {item.action === 'overwrite' && <RotateCcw size={12} />}
+                                      {item.action === 'skip' && <XCircle size={12} />}
+                                      {item.action === 'add' ? '新增' : item.action === 'overwrite' ? '覆盖' : '跳过'}
+                                    </span>
+                                  </td>
+                                  <td className="migration-record-summary">
+                                    {entityType === 'artists' && <>{item.record.name}{item.record.phone ? ` · ${item.record.phone}` : ''}</>}
+                                    {entityType === 'works' && <>{item.record.artist} — {item.record.title} · ¥{Number(item.record.price || 0).toLocaleString()}</>}
+                                    {entityType === 'inquiries' && <>{item.record.workTitle} · {item.record.customerName}</>}
+                                    {entityType === 'orders' && <>{item.record.workTitle} · {item.record.customerName} · ¥{Number(item.record.dealPrice || 0).toLocaleString()}</>}
+                                    {entityType === 'statements' && <>{item.record.artist} · {item.record.startDate}~{item.record.endDate}</>}
+                                    {entityType === 'loans' && <>{item.record.workTitle} · {item.record.borrower}</>}
+                                    {entityType === 'inventoryTasks' && <>{item.record.name}</>}
+                                  </td>
+                                  <td className="migration-reason">{item.reason}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div className="migration-confirm-area">
+                <div className="form-hint migration-confirm-warning">
+                  <AlertTriangle size={12} /> 恢复操作将直接修改当前数据：新增的记录会加入列表，ID相同的记录会被覆盖，艺术家重名和作品重复的记录会被跳过。建议先导出一份当前数据的备份。
+                </div>
+                <div className="form-actions">
+                  <button type="button" className="ghost" onClick={resetMigration}>取消</button>
+                  <button type="button" onClick={exportBackup} className="outline"><Download size={14} /> 先备份当前数据</button>
+                  <button type="button" onClick={confirmRestore} disabled={migrationPreview.totalRecords === 0}>
+                    <RotateCcw size={14} /> 确认恢复
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </section>
