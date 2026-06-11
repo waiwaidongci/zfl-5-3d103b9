@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Banknote, Brush, Calendar, ChevronDown, Filter, MessageCircle, MessageSquare, Phone, Plus, Search, Tag, User } from 'lucide-react';
+import { ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Filter, MessageCircle, MessageSquare, Phone, Plus, Search, Tag, User, XCircle } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -46,6 +46,10 @@ function App() {
   const [inquiryForm, setInquiryForm] = useState({ workId: '', customerName: '', customerPhone: '', intendedPrice: '', remark: '' });
   const [inquiryFilterRaw, setInquiryFilterRaw] = useStorage('zfl-5-inquiry-filter', '全部作品');
   const [showInquiryForm, setShowInquiryForm] = useState(false);
+  const [loans, setLoans] = useStorage('zfl-5-loans', []);
+  const [loanForm, setLoanForm] = useState({ workId: '', borrower: '', loanDate: iso(0), expectedReturnDate: iso(7), contactPerson: '', notes: '' });
+  const [showLoanForm, setShowLoanForm] = useState(false);
+  const [loanFilterRaw, setLoanFilterRaw] = useStorage('zfl-5-loan-filter', '全部作品');
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -76,6 +80,28 @@ function App() {
     });
     return map;
   }, [inquiries]);
+
+  const isWorkOnLoan = useMemo(() => {
+    const map = {};
+    loans.forEach((loan) => {
+      if (!loan.returnedAt) {
+        map[loan.workId] = loan;
+      }
+    });
+    return map;
+  }, [loans]);
+
+  const loanFilter = (loanFilterRaw === '全部作品' || validWorkIds.has(loanFilterRaw))
+    ? loanFilterRaw
+    : '全部作品';
+
+  const filteredLoans = useMemo(() => {
+    return loans
+      .filter((loan) => loanFilter === '全部作品' || loan.workId === loanFilter)
+      .sort((a, b) => new Date(b.loanDate) - new Date(a.loanDate));
+  }, [loans, loanFilter]);
+
+  const onLoanCount = Object.keys(isWorkOnLoan).length;
 
   function addArtist(event) {
     event.preventDefault();
@@ -124,6 +150,49 @@ function App() {
     setInquiries(inquiries.map((inq) => inq.id === id ? { ...inq, status: nextStatus } : inq));
   }
 
+  function addLoan(event) {
+    event.preventDefault();
+    if (!loanForm.workId || !loanForm.borrower.trim()) return;
+    const selectedWork = works.find((w) => w.id === loanForm.workId);
+    setLoans([{
+      id: crypto.randomUUID(),
+      workId: loanForm.workId,
+      workTitle: selectedWork ? selectedWork.title : '',
+      workArtist: selectedWork ? selectedWork.artist : '',
+      borrower: loanForm.borrower.trim(),
+      loanDate: loanForm.loanDate,
+      expectedReturnDate: loanForm.expectedReturnDate,
+      contactPerson: loanForm.contactPerson.trim(),
+      notes: loanForm.notes.trim(),
+      returnedAt: null,
+      createdAt: new Date().toISOString()
+    }, ...loans]);
+    if (selectedWork && selectedWork.exhibit !== '借展') {
+      updateWork(loanForm.workId, { exhibit: '借展' });
+    }
+    setLoanForm({ workId: '', borrower: '', loanDate: iso(0), expectedReturnDate: iso(7), contactPerson: '', notes: '' });
+    setShowLoanForm(false);
+  }
+
+  function openLoanForWork(workId) {
+    setLoanForm({ ...loanForm, workId });
+    setShowLoanForm(true);
+  }
+
+  function markLoanReturned(id) {
+    setLoans(loans.map((loan) => loan.id === id ? { ...loan, returnedAt: new Date().toISOString() } : loan));
+    const loan = loans.find((l) => l.id === id);
+    if (loan) {
+      const otherActiveLoans = loans.filter((l) => l.workId === loan.workId && l.id !== id && !l.returnedAt);
+      if (otherActiveLoans.length === 0) {
+        const work = works.find((w) => w.id === loan.workId);
+        if (work && work.exhibit === '借展') {
+          updateWork(loan.workId, { exhibit: '库房' });
+        }
+      }
+    }
+  }
+
   return (
     <main>
       <header className="hero">
@@ -135,6 +204,7 @@ function App() {
           <span><Brush size={18} />{works.length}件作品</span>
           <span><Banknote size={18} />¥{totalValue.toLocaleString()}</span>
           <span><Calendar size={18} />{settlementWorks.length}件待结算</span>
+          <span><ArrowLeftRight size={18} />{onLoanCount}件借展中</span>
         </div>
       </header>
 
@@ -176,24 +246,42 @@ function App() {
           <label><Search size={16} /><input placeholder="搜索艺术家/作品/状态" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
           <div className="toolbar-right">
             <label><Filter size={16} /><select value={status} onChange={(e) => setStatus(e.target.value)}><option>全部展态</option><option>展出中</option><option>库房</option><option>借展</option><option>退回</option></select></label>
+            <button className="ghost" onClick={() => setShowLoanForm(true)}><Plus size={14} /> 登记借展</button>
             <button className="ghost" onClick={() => setShowInquiryForm(true)}><Plus size={14} /> 登记询价</button>
           </div>
         </div>
         <div className="works">
-          {filteredWorks.map((work) => (
-            <article key={work.id}>
-              <strong>{work.title}</strong>
-              <span>{work.artist} · ¥{Number(work.price).toLocaleString()}</span>
-              <p>{work.inDate}入库 · {work.exhibit} · {work.sale} · {work.settlement}</p>
-              <div className="actions">
-                <button onClick={() => updateWork(work.id, { sale: work.sale === '已售' ? '待售' : '已售', settlement: work.sale === '已售' ? '未结算' : '待结算' })}>{work.sale === '已售' ? '撤回销售' : '标记已售'}</button>
-                <button className="ghost" onClick={() => updateWork(work.id, { settlement: '已结算' })}>完成结算</button>
-                <button className="outline" onClick={() => openInquiryForWork(work.id)}>
-                  <MessageSquare size={14} /> 登记询价{workInquiryCount[work.id] ? ` (${workInquiryCount[work.id]})` : ''}
-                </button>
-              </div>
-            </article>
-          ))}
+          {filteredWorks.map((work) => {
+            const activeLoan = isWorkOnLoan[work.id];
+            const today = new Date().toISOString().slice(0, 10);
+            const isOverdue = activeLoan && activeLoan.expectedReturnDate < today;
+            return (
+              <article key={work.id} className={activeLoan ? 'work-on-loan' : ''}>
+                <strong>{work.title}</strong>
+                <span>{work.artist} · ¥{Number(work.price).toLocaleString()}</span>
+                <p>{work.inDate}入库 · {work.exhibit} · {work.sale} · {work.settlement}</p>
+                {activeLoan && (
+                  <div className={`loan-badge ${isOverdue ? 'loan-overdue' : ''}`}>
+                    <ArrowLeftRight size={12} />
+                    <span>
+                      借展中：{activeLoan.borrower}
+                      {isOverdue && '（已逾期）'}
+                    </span>
+                  </div>
+                )}
+                <div className="actions">
+                  <button onClick={() => updateWork(work.id, { sale: work.sale === '已售' ? '待售' : '已售', settlement: work.sale === '已售' ? '未结算' : '待结算' })}>{work.sale === '已售' ? '撤回销售' : '标记已售'}</button>
+                  <button className="ghost" onClick={() => updateWork(work.id, { settlement: '已结算' })}>完成结算</button>
+                  <button className="outline" onClick={() => openLoanForWork(work.id)}>
+                    <ArrowLeftRight size={14} /> 登记借展
+                  </button>
+                  <button className="outline" onClick={() => openInquiryForWork(work.id)}>
+                    <MessageSquare size={14} /> 登记询价{workInquiryCount[work.id] ? ` (${workInquiryCount[work.id]})` : ''}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
 
@@ -231,6 +319,50 @@ function App() {
             <div className="form-actions">
               <button type="button" className="ghost" onClick={() => setShowInquiryForm(false)}>取消</button>
               <button type="submit">保存询价</button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {showLoanForm && (
+        <section className="panel inquiry-form-panel">
+          <div className="panel-header">
+            <h2><ArrowLeftRight size={18} />登记作品借展</h2>
+            <button className="ghost small" onClick={() => setShowLoanForm(false)}>收起</button>
+          </div>
+          <form className="inquiry-form" onSubmit={addLoan}>
+            <div className="form-row">
+              <label><span className="label-icon"><Tag size={14} /></span>
+                <select value={loanForm.workId} onChange={(e) => setLoanForm({ ...loanForm, workId: e.target.value })}>
+                  <option value="">请选择作品</option>
+                  {works.map((work) => <option key={work.id} value={work.id}>{work.title} — {work.artist}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><Building2 size={14} /></span>
+                <input placeholder="借展方/机构名称 *" value={loanForm.borrower} onChange={(e) => setLoanForm({ ...loanForm, borrower: e.target.value })} />
+              </label>
+              <label><span className="label-icon"><User size={14} /></span>
+                <input placeholder="借展联系人 (选填)" value={loanForm.contactPerson} onChange={(e) => setLoanForm({ ...loanForm, contactPerson: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><Calendar size={14} /></span>
+                <input type="date" value={loanForm.loanDate} onChange={(e) => setLoanForm({ ...loanForm, loanDate: e.target.value })} />
+              </label>
+              <label><span className="label-icon"><Clock size={14} /></span>
+                <input type="date" value={loanForm.expectedReturnDate} onChange={(e) => setLoanForm({ ...loanForm, expectedReturnDate: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-row">
+              <label><span className="label-icon"><MessageCircle size={14} /></span>
+                <input placeholder="备注 (选填)" value={loanForm.notes} onChange={(e) => setLoanForm({ ...loanForm, notes: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="ghost" onClick={() => setShowLoanForm(false)}>取消</button>
+              <button type="submit">确认借展</button>
             </div>
           </form>
         </section>
@@ -275,6 +407,63 @@ function App() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="toolbar">
+          <h2><ArrowLeftRight size={18} />作品借展记录 ({filteredLoans.length})</h2>
+          <label><Filter size={16} />
+            <select value={loanFilter} onChange={(e) => setLoanFilterRaw(e.target.value)}>
+              <option value="全部作品">全部作品</option>
+              {works.map((work) => <option key={work.id} value={work.id}>{work.title}</option>)}
+            </select>
+          </label>
+          <div></div>
+        </div>
+        {filteredLoans.length === 0 ? (
+          <p className="empty-tip">暂无借展记录，点击上方"登记借展"开始记录。</p>
+        ) : (
+          <div className="inquiry-list">
+            {filteredLoans.map((loan) => {
+              const today = new Date().toISOString().slice(0, 10);
+              const isActive = !loan.returnedAt;
+              const isOverdue = isActive && loan.expectedReturnDate < today;
+              const loanStatusClass = !isActive ? 'status-returned' : (isOverdue ? 'status-overdue' : 'status-active');
+              return (
+                <div className={`loan-item ${loanStatusClass}`} key={loan.id}>
+                  <div className="inquiry-head">
+                    <div>
+                      <strong className="inquiry-work">{loan.workTitle}</strong>
+                      <span className="inquiry-customer">{loan.workArtist} · <Building2 size={12} />{loan.borrower}</span>
+                    </div>
+                    <div className="status-dropdown">
+                      {isActive ? (
+                        <button
+                          className={`status-select ${isOverdue ? 'status-overdue' : 'status-active'}`}
+                          onClick={() => markLoanReturned(loan.id)}
+                        >
+                          {isOverdue ? <XCircle size={14} /> : <ArrowLeftRight size={14} />}
+                          {isOverdue ? '已逾期·点我归还' : '借展中·点我归还'}
+                        </button>
+                      ) : (
+                        <span className="status-select status-returned">
+                          <CheckCircle2 size={14} />已归还
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="inquiry-body">
+                    <span><Calendar size={12} />借出：{loan.loanDate}</span>
+                    <span><Clock size={12} />预计归还：{loan.expectedReturnDate}</span>
+                    {loan.contactPerson && <span><User size={12} />联系人：{loan.contactPerson}</span>}
+                    {loan.notes && <span className="inquiry-remark"><MessageCircle size={12} />{loan.notes}</span>}
+                    {loan.returnedAt && <span className="inquiry-date">归还于 {new Date(loan.returnedAt).toLocaleDateString('zh-CN')}</span>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
