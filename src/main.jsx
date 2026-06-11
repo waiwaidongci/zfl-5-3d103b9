@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, FileUp, Filter, MessageCircle, MessageSquare, Percent, Phone, Plus, Search, Tag, User, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, FileUp, Filter, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, Search, Tag, TrendingUp, User, XCircle } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -56,6 +56,11 @@ const INQUIRY_STATUS = ['待跟进', '跟进中', '已成交', '已放弃'];
 const VALID_EXHIBIT = ['展出中', '库房', '借展', '退回'];
 const VALID_SALE = ['待售', '已预订', '已售'];
 const CSV_COLUMNS = ['艺术家', '作品名', '价格', '入库日期', '展态', '销售状态'];
+const BALANCE_STATUS = ['待支付', '已支付', '部分支付'];
+
+const seedOrders = [
+  { id: 'seed-order-jqcy03', workId: 'seed-work-jqcy03', workTitle: '旧墙采样03', workArtist: '赵以南', customerName: '张经理', customerPhone: '13800008888', dealPrice: 8600, deposit: 2580, balanceStatus: '待支付', dealDate: iso(-3), note: '老客户介绍', createdAt: iso(-3), cancelledAt: null }
+];
 
 function parseCSVLine(line, delimiter) {
   const result = [];
@@ -311,6 +316,11 @@ function App() {
   const [showBatchImport, setShowBatchImport] = useState(false);
   const [batchCsvText, setBatchCsvText] = useState('');
   const [batchPreview, setBatchPreview] = useState(null);
+  const [orders, setOrders] = useStorage('zfl-5-orders', seedOrders);
+  const [orderForm, setOrderForm] = useState({ workId: '', customerName: '', customerPhone: '', dealPrice: '', deposit: '', balanceStatus: '待支付', dealDate: iso(0), note: '' });
+  const [showOrderForm, setShowOrderForm] = useState(false);
+  const [editingOrderId, setEditingOrderId] = useState(null);
+  const [orderFilterRaw, setOrderFilterRaw] = useStorage('zfl-5-order-filter', '全部订单');
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -341,36 +351,43 @@ function App() {
       return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
     };
 
-    const soldThisMonth = works.filter((w) => w.sale === '已售' && isThisMonth(w.saleDate));
-    const settledThisMonth = works.filter((w) => w.sale === '已售' && w.settlement === '已结算' && isThisMonth(w.settlementDate));
-    const pendingThisMonth = works.filter((w) => w.sale === '已售' && w.settlement === '待结算' && isThisMonth(w.saleDate));
+    const activeOrders = orders.filter((o) => !o.cancelledAt);
 
-    const soldAmount = soldThisMonth.reduce((sum, w) => sum + Number(w.price || 0), 0);
-    const pendingAmount = pendingThisMonth.reduce((sum, w) => sum + Number(w.price || 0), 0);
-    const settledAmount = settledThisMonth.reduce((sum, w) => sum + Number(w.price || 0), 0);
+    const soldThisMonthOrders = activeOrders.filter((o) => isThisMonth(o.dealDate));
+    const settledThisMonthWorks = works.filter((w) => w.sale === '已售' && w.settlement === '已结算' && isThisMonth(w.settlementDate));
+    const pendingThisMonthWorks = works.filter((w) => w.sale === '已售' && w.settlement === '待结算' && isThisMonth(w.saleDate));
 
-    const estimatedCommission = pendingThisMonth.reduce((sum, w) => {
+    const getDealPriceForWork = (workId) => {
+      const order = activeOrders.find((o) => o.workId === workId);
+      return order ? Number(order.dealPrice || 0) : 0;
+    };
+
+    const soldAmount = soldThisMonthOrders.reduce((sum, o) => sum + Number(o.dealPrice || 0), 0);
+    const pendingAmount = pendingThisMonthWorks.reduce((sum, w) => sum + getDealPriceForWork(w.id), 0);
+    const settledAmount = settledThisMonthWorks.reduce((sum, w) => sum + getDealPriceForWork(w.id), 0);
+
+    const estimatedCommission = pendingThisMonthWorks.reduce((sum, w) => {
       const rate = commissionRateMap[w.artist] ?? DEFAULT_COMMISSION_RATE;
-      return sum + Number(w.price || 0) * rate;
+      return sum + getDealPriceForWork(w.id) * rate;
     }, 0);
 
-    const settledCommission = settledThisMonth.reduce((sum, w) => {
+    const settledCommission = settledThisMonthWorks.reduce((sum, w) => {
       const rate = commissionRateMap[w.artist] ?? DEFAULT_COMMISSION_RATE;
-      return sum + Number(w.price || 0) * rate;
+      return sum + getDealPriceForWork(w.id) * rate;
     }, 0);
 
     return {
-      pendingCount: pendingThisMonth.length,
+      pendingCount: pendingThisMonthWorks.length,
       pendingAmount,
-      settledCount: settledThisMonth.length,
+      settledCount: settledThisMonthWorks.length,
       settledAmount,
-      soldCount: soldThisMonth.length,
+      soldCount: soldThisMonthOrders.length,
       soldAmount,
       estimatedCommission,
       settledCommission,
       currentMonthLabel: `${currentYear}年${currentMonth + 1}月`
     };
-  }, [works, commissionRateMap]);
+  }, [works, orders, commissionRateMap]);
 
   const filteredInquiries = useMemo(() => {
     return inquiries
@@ -407,6 +424,47 @@ function App() {
   }, [loans, loanFilter]);
 
   const onLoanCount = Object.keys(isWorkOnLoan).length;
+
+  const orderFilter = (orderFilterRaw === '全部订单' || orderFilterRaw === '有效订单' || orderFilterRaw === '已撤销' || validWorkIds.has(orderFilterRaw))
+    ? orderFilterRaw
+    : '全部订单';
+
+  const activeOrderMap = useMemo(() => {
+    const map = {};
+    orders.forEach((order) => {
+      if (!order.cancelledAt) {
+        map[order.workId] = order;
+      }
+    });
+    return map;
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    return orders
+      .filter((order) => {
+        if (orderFilter === '全部订单') return true;
+        if (orderFilter === '有效订单') return !order.cancelledAt;
+        if (orderFilter === '已撤销') return order.cancelledAt;
+        return order.workId === orderFilter;
+      })
+      .sort((a, b) => new Date(b.dealDate) - new Date(a.dealDate));
+  }, [orders, orderFilter]);
+
+  const orderStats = useMemo(() => {
+    const activeOrders = orders.filter((o) => !o.cancelledAt);
+    const totalDealAmount = activeOrders.reduce((sum, o) => sum + Number(o.dealPrice || 0), 0);
+    const totalDeposit = activeOrders.reduce((sum, o) => sum + Number(o.deposit || 0), 0);
+    const pendingBalance = activeOrders
+      .filter((o) => o.balanceStatus !== '已支付')
+      .reduce((sum, o) => sum + (Number(o.dealPrice || 0) - Number(o.deposit || 0)), 0);
+    return {
+      totalCount: activeOrders.length,
+      totalDealAmount,
+      totalDeposit,
+      pendingBalance,
+      cancelledCount: orders.filter((o) => o.cancelledAt).length
+    };
+  }, [orders]);
 
   function addArtist(event) {
     event.preventDefault();
@@ -496,6 +554,114 @@ function App() {
         }
       }
     }
+  }
+
+  function openOrderForWork(workId) {
+    const selectedWork = works.find((w) => w.id === workId);
+    setEditingOrderId(null);
+    setOrderForm({
+      workId,
+      customerName: '',
+      customerPhone: '',
+      dealPrice: selectedWork ? String(selectedWork.price) : '',
+      deposit: '',
+      balanceStatus: '待支付',
+      dealDate: iso(0),
+      note: ''
+    });
+    setShowOrderForm(true);
+  }
+
+  function openEditOrder(orderId) {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+    setEditingOrderId(orderId);
+    setOrderForm({
+      workId: order.workId,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      dealPrice: String(order.dealPrice),
+      deposit: String(order.deposit),
+      balanceStatus: order.balanceStatus,
+      dealDate: order.dealDate,
+      note: order.note || ''
+    });
+    setShowOrderForm(true);
+  }
+
+  function addOrder(event) {
+    event.preventDefault();
+    if (!orderForm.workId || !orderForm.customerName.trim() || !orderForm.customerPhone.trim()) return;
+
+    const selectedWork = works.find((w) => w.id === orderForm.workId);
+    const dealPrice = Number(orderForm.dealPrice || 0);
+    const deposit = Number(orderForm.deposit || 0);
+
+    if (editingOrderId) {
+      setOrders(orders.map((o) => o.id === editingOrderId ? {
+        ...o,
+        customerName: orderForm.customerName.trim(),
+        customerPhone: orderForm.customerPhone.trim(),
+        dealPrice,
+        deposit,
+        balanceStatus: orderForm.balanceStatus,
+        dealDate: orderForm.dealDate,
+        note: orderForm.note.trim(),
+        updatedAt: new Date().toISOString()
+      } : o));
+
+      if (orderForm.dealDate) {
+        updateWork(orderForm.workId, { saleDate: orderForm.dealDate });
+      }
+    } else {
+      const newOrder = {
+        id: crypto.randomUUID(),
+        workId: orderForm.workId,
+        workTitle: selectedWork ? selectedWork.title : '',
+        workArtist: selectedWork ? selectedWork.artist : '',
+        customerName: orderForm.customerName.trim(),
+        customerPhone: orderForm.customerPhone.trim(),
+        dealPrice,
+        deposit,
+        balanceStatus: orderForm.balanceStatus,
+        dealDate: orderForm.dealDate,
+        note: orderForm.note.trim(),
+        createdAt: new Date().toISOString(),
+        cancelledAt: null
+      };
+
+      setOrders([newOrder, ...orders]);
+      updateWork(orderForm.workId, {
+        sale: '已售',
+        settlement: '待结算',
+        saleDate: orderForm.dealDate
+      });
+    }
+
+    setOrderForm({ workId: '', customerName: '', customerPhone: '', dealPrice: '', deposit: '', balanceStatus: '待支付', dealDate: iso(0), note: '' });
+    setEditingOrderId(null);
+    setShowOrderForm(false);
+  }
+
+  function cancelOrder(orderId) {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+
+    setOrders(orders.map((o) => o.id === orderId ? { ...o, cancelledAt: new Date().toISOString() } : o));
+
+    const otherActiveOrders = orders.filter((o) => o.workId === order.workId && o.id !== orderId && !o.cancelledAt);
+    if (otherActiveOrders.length === 0) {
+      updateWork(order.workId, {
+        sale: '待售',
+        settlement: '未结算',
+        saleDate: null,
+        settlementDate: null
+      });
+    }
+  }
+
+  function updateOrderBalanceStatus(orderId, nextStatus) {
+    setOrders(orders.map((o) => o.id === orderId ? { ...o, balanceStatus: nextStatus } : o));
   }
 
   function previewBatchImport() {
@@ -610,6 +776,7 @@ function App() {
           <label><Search size={16} /><input placeholder="搜索艺术家/作品/状态" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
           <div className="toolbar-right">
             <label><Filter size={16} /><select value={status} onChange={(e) => setStatus(e.target.value)}><option>全部展态</option><option>展出中</option><option>库房</option><option>借展</option><option>退回</option></select></label>
+            <button className="ghost" onClick={() => setShowOrderForm(true)}><Plus size={14} /> 登记销售</button>
             <button className="ghost" onClick={() => setShowLoanForm(true)}><Plus size={14} /> 登记借展</button>
             <button className="ghost" onClick={() => setShowInquiryForm(true)}><Plus size={14} /> 登记询价</button>
             <button className="ghost" onClick={() => setShowBatchImport(!showBatchImport)}><FileUp size={14} /> 批量导入</button>
@@ -634,14 +801,22 @@ function App() {
                     </span>
                   </div>
                 )}
+                {activeOrderMap[work.id] && (
+                  <div className="order-badge">
+                    <Receipt size={12} />
+                    <span>订单：{activeOrderMap[work.id].customerName} · 尾款{activeOrderMap[work.id].balanceStatus}</span>
+                  </div>
+                )}
                 <div className="actions">
-                  <button onClick={() => {
-                    const isSold = work.sale === '已售';
-                    const patch = isSold
-                      ? { sale: '待售', settlement: '未结算', saleDate: null, settlementDate: null }
-                      : { sale: '已售', settlement: '待结算', saleDate: iso(0) };
-                    updateWork(work.id, patch);
-                  }}>{work.sale === '已售' ? '撤回销售' : '标记已售'}</button>
+                  {activeOrderMap[work.id] ? (
+                    <button onClick={() => cancelOrder(activeOrderMap[work.id].id)}>
+                      <XCircle size={14} /> 撤回销售
+                    </button>
+                  ) : (
+                    <button onClick={() => openOrderForWork(work.id)}>
+                      <Receipt size={14} /> 登记销售
+                    </button>
+                  )}
                   <button className="ghost" onClick={() => updateWork(work.id, { settlement: '已结算', settlementDate: iso(0) })}>完成结算</button>
                   <button className="outline" onClick={() => openLoanForWork(work.id)}>
                     <ArrowLeftRight size={14} /> 登记借展
@@ -864,6 +1039,74 @@ function App() {
         </section>
       )}
 
+      {showOrderForm && (
+        <section className="panel inquiry-form-panel">
+          <div className="panel-header">
+            <h2><Receipt size={18} />{editingOrderId ? '编辑销售订单' : '登记销售订单'}</h2>
+            <button className="ghost small" onClick={() => { setShowOrderForm(false); setEditingOrderId(null); }}>收起</button>
+          </div>
+          <form className="inquiry-form" onSubmit={addOrder}>
+            <div className="form-row">
+              <label><span className="label-icon"><Tag size={14} /></span>
+                <select
+                  value={orderForm.workId}
+                  disabled={!!editingOrderId}
+                  onChange={(e) => {
+                    const work = works.find((w) => w.id === e.target.value);
+                    setOrderForm({ ...orderForm, workId: e.target.value, dealPrice: work ? String(work.price) : '' });
+                  }}
+                >
+                  <option value="">请选择作品 *</option>
+                  {editingOrderId
+                    ? works.filter((w) => w.id === orderForm.workId).map((work) => (
+                        <option key={work.id} value={work.id}>{work.title} — {work.artist} · ¥{Number(work.price).toLocaleString()}</option>
+                      ))
+                    : works.filter((w) => w.sale !== '已售' || !activeOrderMap[w.id]).map((work) => (
+                        <option key={work.id} value={work.id}>{work.title} — {work.artist} · ¥{Number(work.price).toLocaleString()}</option>
+                      ))
+                  }
+                </select>
+              </label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><User size={14} /></span>
+                <input placeholder="客户姓名 *" value={orderForm.customerName} onChange={(e) => setOrderForm({ ...orderForm, customerName: e.target.value })} />
+              </label>
+              <label><span className="label-icon"><Phone size={14} /></span>
+                <input placeholder="联系方式 *" value={orderForm.customerPhone} onChange={(e) => setOrderForm({ ...orderForm, customerPhone: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><TrendingUp size={14} /></span>
+                <input type="number" placeholder="成交价 (元) *" value={orderForm.dealPrice} onChange={(e) => setOrderForm({ ...orderForm, dealPrice: e.target.value })} />
+              </label>
+              <label><span className="label-icon"><Banknote size={14} /></span>
+                <input type="number" placeholder="已收订金 (元)" value={orderForm.deposit} onChange={(e) => setOrderForm({ ...orderForm, deposit: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><Coins size={14} /></span>
+                <select value={orderForm.balanceStatus} onChange={(e) => setOrderForm({ ...orderForm, balanceStatus: e.target.value })}>
+                  {BALANCE_STATUS.map((s) => <option key={s}>{s}</option>)}
+                </select>
+              </label>
+              <label><span className="label-icon"><Calendar size={14} /></span>
+                <input type="date" value={orderForm.dealDate} onChange={(e) => setOrderForm({ ...orderForm, dealDate: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-row">
+              <label><span className="label-icon"><MessageCircle size={14} /></span>
+                <input placeholder="备注 (选填)" value={orderForm.note} onChange={(e) => setOrderForm({ ...orderForm, note: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="ghost" onClick={() => { setShowOrderForm(false); setEditingOrderId(null); }}>取消</button>
+              <button type="submit">{editingOrderId ? '保存修改' : '确认成交'}</button>
+            </div>
+          </form>
+        </section>
+      )}
+
       <section className="panel">
         <div className="toolbar">
           <h2><MessageSquare size={18} />客户询价记录 ({filteredInquiries.length})</h2>
@@ -964,6 +1207,102 @@ function App() {
         )}
       </section>
 
+      <section className="panel">
+        <div className="toolbar">
+          <h2><Receipt size={18} />销售订单记录 ({filteredOrders.length})</h2>
+          <label><Filter size={16} />
+            <select value={orderFilter} onChange={(e) => setOrderFilterRaw(e.target.value)}>
+              <option value="全部订单">全部订单</option>
+              <option value="有效订单">有效订单</option>
+              <option value="已撤销">已撤销</option>
+              {works.map((work) => <option key={work.id} value={work.id}>{work.title}</option>)}
+            </select>
+          </label>
+          <div></div>
+        </div>
+        {filteredOrders.length === 0 ? (
+          <p className="empty-tip">暂无销售订单，点击上方"登记销售"开始记录。</p>
+        ) : (
+          <>
+            <div className="order-stats">
+              <div className="order-stat-item">
+                <span className="order-stat-label">有效订单</span>
+                <strong className="order-stat-value">{orderStats.totalCount}件</strong>
+              </div>
+              <div className="order-stat-item">
+                <span className="order-stat-label">成交总额</span>
+                <strong className="order-stat-value amount">¥{orderStats.totalDealAmount.toLocaleString()}</strong>
+              </div>
+              <div className="order-stat-item">
+                <span className="order-stat-label">已收订金</span>
+                <strong className="order-stat-value deposit">¥{orderStats.totalDeposit.toLocaleString()}</strong>
+              </div>
+              <div className="order-stat-item">
+                <span className="order-stat-label">待收尾款</span>
+                <strong className="order-stat-value balance">¥{orderStats.pendingBalance.toLocaleString()}</strong>
+              </div>
+              {orderStats.cancelledCount > 0 && (
+                <div className="order-stat-item">
+                  <span className="order-stat-label">已撤销</span>
+                  <strong className="order-stat-value cancelled">{orderStats.cancelledCount}件</strong>
+                </div>
+              )}
+            </div>
+            <div className="order-list">
+              {filteredOrders.map((order) => {
+                const isCancelled = !!order.cancelledAt;
+                const balance = Number(order.dealPrice || 0) - Number(order.deposit || 0);
+                return (
+                  <div className={`order-item ${isCancelled ? 'order-cancelled' : ''}`} key={order.id}>
+                    <div className="inquiry-head">
+                      <div>
+                        <strong className="inquiry-work">{order.workTitle}</strong>
+                        <span className="inquiry-customer">{order.workArtist} · <User size={12} />{order.customerName} · <Phone size={12} />{order.customerPhone}</span>
+                      </div>
+                      <div className="status-dropdown">
+                        {isCancelled ? (
+                          <span className="status-select status-已放弃">
+                            <XCircle size={14} />已撤销
+                          </span>
+                        ) : (
+                          <select
+                            value={order.balanceStatus}
+                            onChange={(e) => updateOrderBalanceStatus(order.id, e.target.value)}
+                            className={`status-select status-balance-${order.balanceStatus}`}
+                          >
+                            {BALANCE_STATUS.map((s) => <option key={s}>{s}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                    <div className="inquiry-body">
+                      <span><TrendingUp size={12} />成交价 ¥{Number(order.dealPrice).toLocaleString()}</span>
+                      <span><Banknote size={12} />订金 ¥{Number(order.deposit).toLocaleString()}</span>
+                      <span className={balance > 0 ? 'inquiry-price' : ''}><Coins size={12} />尾款 ¥{balance.toLocaleString()}</span>
+                      <span><Calendar size={12} />成交：{order.dealDate}</span>
+                      {order.note && <span className="inquiry-remark"><MessageCircle size={12} />{order.note}</span>}
+                      {order.cancelledAt && (
+                        <span className="inquiry-date">撤销于 {new Date(order.cancelledAt).toLocaleString('zh-CN')}</span>
+                      )}
+                    </div>
+                    {!isCancelled && (
+                      <div className="order-actions">
+                        <button className="outline small" onClick={() => openEditOrder(order.id)}>
+                          <Pencil size={12} /> 编辑订单
+                        </button>
+                        <button className="ghost small" onClick={() => cancelOrder(order.id)}>
+                          <XCircle size={12} /> 撤销订单
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </section>
+
       <section className="bottom">
         <div className="panel">
           <h2>艺术家详情</h2>
@@ -1015,7 +1354,25 @@ function App() {
             {settlementWorks.length === 0 ? (
               <p className="empty-tip">暂无待结算作品</p>
             ) : (
-              settlementWorks.map((work) => <p className="artist" key={work.id}><strong>{work.title}</strong><span>{work.artist} · ¥{Number(work.price).toLocaleString()}</span></p>)
+              settlementWorks.map((work) => {
+                const order = activeOrderMap[work.id];
+                const dealPrice = order ? Number(order.dealPrice || 0) : Number(work.price || 0);
+                const commissionRate = commissionRateMap[work.artist] ?? DEFAULT_COMMISSION_RATE;
+                const commission = Math.round(dealPrice * commissionRate);
+                return (
+                  <div className="artist settlement-item" key={work.id}>
+                    <div>
+                      <strong>{work.title}</strong>
+                      <span>{work.artist}</span>
+                      {order && <span className="settlement-customer"><User size={12} />{order.customerName}</span>}
+                    </div>
+                    <div className="settlement-amounts">
+                      <span>成交价 ¥{dealPrice.toLocaleString()}</span>
+                      <span className="settlement-commission">佣金 ¥{commission.toLocaleString()}</span>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

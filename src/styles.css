@@ -115,4 +115,34 @@ button.status-select { cursor: pointer; display: inline-flex; align-items: cente
 .batch-error-cell { display: flex; flex-direction: column; gap: 4px; }
 .batch-error-tag { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 6px; font-size: 12px; font-weight: 500; }
 
-@media (max-width: 900px) { main { padding: 16px; } .hero { align-items: start; flex-direction: column; } .forms, .bottom, .toolbar, .split, .toolbar-right { grid-template-columns: 1fr; } .toolbar-right { flex-direction: column; align-items: stretch; } .inquiry-date { margin-left: 0; } .settlement-stats { grid-template-columns: 1fr; } .batch-table { font-size: 13px; } .batch-table th, .batch-table td { padding: 8px 10px; } }
+.order-badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; background: #dcfce7; border: 1px solid #86efac; color: #166534; font-size: 13px; margin: 8px 0 4px; font-weight: 500; }
+
+.order-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.order-stat-item { background: #fbfbf8; border: 1px solid #e5e2dc; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.order-stat-label { font-size: 12px; color: #67655e; }
+.order-stat-value { font-size: 16px; font-weight: 700; color: #242424; }
+.order-stat-value.amount { color: #1d4ed8; }
+.order-stat-value.deposit { color: #15803d; }
+.order-stat-value.balance { color: #92400e; }
+.order-stat-value.cancelled { color: #6b7280; }
+
+.order-list { display: flex; flex-direction: column; gap: 10px; }
+.order-item { border: 1px solid #e5e2dc; border-radius: 8px; padding: 14px 16px; background: #fbfbf8; border-left: 4px solid #10b981; }
+.order-item.order-cancelled { border-left: 4px solid #9ca3af; opacity: 0.7; background: #f5f5f4; }
+
+.status-balance-待支付 { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+.status-balance-已支付 { background: #dcfce7; border-color: #86efac; color: #166534; }
+.status-balance-部分支付 { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+
+.order-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e2dc; }
+
+.settlement-item { align-items: flex-start; padding: 14px 0; }
+.settlement-item > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.settlement-customer { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: #67655e; margin-top: 2px; }
+.settlement-amounts { display: flex; flex-direction: column; gap: 2px; text-align: right; }
+.settlement-amounts span { display: block; font-size: 13px; }
+.settlement-amounts .settlement-commission { color: #7c3aed; font-weight: 500; }
+
+select:disabled { background: #f5f5f2; color: #67655e; cursor: not-allowed; }
+
+@media (max-width: 900px) { main { padding: 16px; } .hero { align-items: start; flex-direction: column; } .forms, .bottom, .toolbar, .split, .toolbar-right { grid-template-columns: 1fr; } .toolbar-right { flex-direction: column; align-items: stretch; } .inquiry-date { margin-left: 0; } .settlement-stats { grid-template-columns: 1fr; } .batch-table { font-size: 13px; } .batch-table th, .batch-table td { padding: 8px 10px; } .order-stats { grid-template-columns: 1fr 1fr; } }
