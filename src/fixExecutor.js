@@ -294,10 +294,22 @@ function applyFixes(patches, data) {
   return updatedData;
 }
 
-function persistFixedData(updatedData) {
+function persistFixedData(updatedData, patches) {
+  const patchEntityTypes = new Set();
+  (patches || []).forEach((p) => {
+    if (p.entityType === 'inventoryItems') {
+      patchEntityTypes.add('inventoryTasks');
+    } else {
+      patchEntityTypes.add(p.entityType);
+    }
+  });
+
   Object.entries(STORAGE_KEYS).forEach(([key, storageKey]) => {
-    if (updatedData[key] !== undefined) {
-      localStorage.setItem(storageKey, JSON.stringify(updatedData[key]));
+    if (updatedData[key] === undefined) return;
+    if (patchEntityTypes.size > 0 && !patchEntityTypes.has(key)) return;
+    const value = updatedData[key];
+    if (Array.isArray(value)) {
+      localStorage.setItem(storageKey, JSON.stringify(value));
     }
   });
 }

@@ -7,7 +7,7 @@ import {
 import { runAllDiagnostics, SEVERITY, CATEGORY, CATEGORY_LABELS } from './diagnosticRules.js';
 import { generateFixPreview, applyFixes, persistFixedData } from './fixExecutor.js';
 
-function DataHealthCenter({ works, orders, inquiries, loans, statements, inventoryTasks, onFixApplied }) {
+function DataHealthCenter({ artists, works, orders, inquiries, loans, statements, inventoryTasks, onFixApplied }) {
   const [diagnosisResult, setDiagnosisResult] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedSeverity, setSelectedSeverity] = useState('all');
@@ -18,8 +18,8 @@ function DataHealthCenter({ works, orders, inquiries, loans, statements, invento
   const [expandedIssueId, setExpandedIssueId] = useState(null);
 
   const data = useMemo(() => ({
-    works, orders, inquiries, loans, statements, inventoryTasks
-  }), [works, orders, inquiries, loans, statements, inventoryTasks]);
+    artists, works, orders, inquiries, loans, statements, inventoryTasks
+  }), [artists, works, orders, inquiries, loans, statements, inventoryTasks]);
 
   const runScan = useCallback(() => {
     const result = runAllDiagnostics(data);
@@ -78,10 +78,10 @@ function DataHealthCenter({ works, orders, inquiries, loans, statements, invento
   const handleConfirmFix = useCallback(() => {
     if (!fixPreview) return;
     const updatedData = applyFixes(fixPreview.patches, data);
-    persistFixedData(updatedData);
+    persistFixedData(updatedData, fixPreview.patches);
     setFixConfirmStep('done');
     if (onFixApplied) {
-      onFixApplied(updatedData);
+      onFixApplied(updatedData, fixPreview.patches);
     }
   }, [fixPreview, data, onFixApplied]);
 

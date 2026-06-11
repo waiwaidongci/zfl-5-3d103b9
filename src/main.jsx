@@ -1259,14 +1259,37 @@ function App() {
     setMigrationError('');
   }
 
-  function handleFixApplied(updatedData) {
-    if (updatedData.artists) setArtists(updatedData.artists);
-    if (updatedData.works) setWorks(updatedData.works);
-    if (updatedData.inquiries) setInquiries(updatedData.inquiries);
-    if (updatedData.orders) setOrders(updatedData.orders);
-    if (updatedData.statements) setStatements(updatedData.statements);
-    if (updatedData.loans) setLoans(updatedData.loans);
-    if (updatedData.inventoryTasks) setInventoryTasks(updatedData.inventoryTasks);
+  function handleFixApplied(updatedData, patches) {
+    const patchTypes = new Set();
+    (patches || []).forEach((p) => {
+      if (p.entityType === 'inventoryItems') {
+        patchTypes.add('inventoryTasks');
+      } else {
+        patchTypes.add(p.entityType);
+      }
+    });
+
+    if (patchTypes.size === 0 || patchTypes.has('artists')) {
+      if (updatedData.artists) setArtists(updatedData.artists);
+    }
+    if (patchTypes.size === 0 || patchTypes.has('works')) {
+      if (updatedData.works) setWorks(updatedData.works);
+    }
+    if (patchTypes.size === 0 || patchTypes.has('inquiries')) {
+      if (updatedData.inquiries) setInquiries(updatedData.inquiries);
+    }
+    if (patchTypes.size === 0 || patchTypes.has('orders')) {
+      if (updatedData.orders) setOrders(updatedData.orders);
+    }
+    if (patchTypes.size === 0 || patchTypes.has('statements')) {
+      if (updatedData.statements) setStatements(updatedData.statements);
+    }
+    if (patchTypes.size === 0 || patchTypes.has('loans')) {
+      if (updatedData.loans) setLoans(updatedData.loans);
+    }
+    if (patchTypes.size === 0 || patchTypes.has('inventoryTasks')) {
+      if (updatedData.inventoryTasks) setInventoryTasks(updatedData.inventoryTasks);
+    }
   }
 
   const ENTITY_LABELS = {
@@ -2509,6 +2532,7 @@ function App() {
 
       {showHealthCenter && (
         <DataHealthCenter
+          artists={artists}
           works={works}
           orders={orders}
           inquiries={inquiries}
