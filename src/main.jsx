@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, Search, Tag, TrendingUp, User, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, Search, Tag, TrendingUp, User, XCircle, ClipboardList, Eye, AlertTriangle, Package } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -57,6 +57,8 @@ const VALID_EXHIBIT = ['展出中', '库房', '借展', '退回'];
 const VALID_SALE = ['待售', '已预订', '已售'];
 const CSV_COLUMNS = ['艺术家', '作品名', '价格', '入库日期', '展态', '销售状态'];
 const BALANCE_STATUS = ['待支付', '已支付', '部分支付'];
+const INVENTORY_STATUS = ['未核对', '已核对', '异常', '缺失'];
+const INVENTORY_TASK_STATUS = ['进行中', '已完成'];
 
 const seedOrders = [
   { id: 'seed-order-jqcy03', workId: 'seed-work-jqcy03', workTitle: '旧墙采样03', workArtist: '赵以南', customerName: '张经理', customerPhone: '13800008888', dealPrice: 8600, deposit: 2580, balanceStatus: '待支付', dealDate: iso(-3), note: '老客户介绍', createdAt: iso(-3), cancelledAt: null }
@@ -330,6 +332,13 @@ function App() {
   const [statementForm, setStatementForm] = useState({ artist: '', startDate: '', endDate: '' });
   const [statementPreview, setStatementPreview] = useState(null);
   const [statementFilter, setStatementFilter] = useState('全部');
+  const [inventoryTasks, setInventoryTasks] = useStorage('zfl-5-inventory-tasks', []);
+  const [showInventoryForm, setShowInventoryForm] = useState(false);
+  const [inventoryForm, setInventoryForm] = useState({ name: '', note: '' });
+  const [selectedInventoryId, setSelectedInventoryId] = useState(null);
+  const [inventoryFilter, setInventoryFilter] = useState('全部任务');
+  const [inventoryQuery, setInventoryQuery] = useState('');
+  const [inventoryItemFilter, setInventoryItemFilter] = useState('全部状态');
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -818,6 +827,111 @@ function App() {
     setStatementForm({ artist: '', startDate: '', endDate: '' });
     setStatementPreview(null);
   }
+
+  function createInventoryTask(event) {
+    event.preventDefault();
+    if (!inventoryForm.name.trim()) return;
+    const snapshot = works.map((work) => ({
+      id: crypto.randomUUID(),
+      workId: work.id,
+      workSnapshot: JSON.parse(JSON.stringify(work)),
+      status: '未核对',
+      note: '',
+      checkedAt: null
+    }));
+    const newTask = {
+      id: crypto.randomUUID(),
+      name: inventoryForm.name.trim(),
+      note: inventoryForm.note.trim(),
+      status: '进行中',
+      items: snapshot,
+      totalCount: snapshot.length,
+      checkedCount: 0,
+      exceptionCount: 0,
+      missingCount: 0,
+      createdAt: new Date().toISOString(),
+      completedAt: null
+    };
+    setInventoryTasks([newTask, ...inventoryTasks]);
+    setInventoryForm({ name: '', note: '' });
+    setShowInventoryForm(false);
+  }
+
+  function updateInventoryItem(taskId, itemId, patch) {
+    setInventoryTasks(inventoryTasks.map((task) => {
+      if (task.id !== taskId) return task;
+      const updatedItems = task.items.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              ...patch,
+              checkedAt: patch.status && patch.status !== '未核对'
+                ? (patch.checkedAt || new Date().toISOString())
+                : item.checkedAt
+            }
+          : item
+      );
+      const checkedCount = updatedItems.filter((i) => i.status === '已核对').length;
+      const exceptionCount = updatedItems.filter((i) => i.status === '异常').length;
+      const missingCount = updatedItems.filter((i) => i.status === '缺失').length;
+      return {
+        ...task,
+        items: updatedItems,
+        checkedCount,
+        exceptionCount,
+        missingCount
+      };
+    }));
+  }
+
+  function completeInventoryTask(taskId) {
+    setInventoryTasks(inventoryTasks.map((task) =>
+      task.id === taskId
+        ? { ...task, status: '已完成', completedAt: new Date().toISOString() }
+        : task
+    ));
+  }
+
+  function reopenInventoryTask(taskId) {
+    setInventoryTasks(inventoryTasks.map((task) =>
+      task.id === taskId
+        ? { ...task, status: '进行中', completedAt: null }
+        : task
+    ));
+  }
+
+  const selectedInventoryTask = useMemo(() =>
+    inventoryTasks.find((t) => t.id === selectedInventoryId) || null,
+  [inventoryTasks, selectedInventoryId]);
+
+  const filteredInventoryTasks = useMemo(() => {
+    return inventoryTasks
+      .filter((task) => {
+        if (inventoryFilter === '全部任务') return true;
+        return task.status === inventoryFilter;
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [inventoryTasks, inventoryFilter]);
+
+  const filteredInventoryItems = useMemo(() => {
+    if (!selectedInventoryTask) return [];
+    return selectedInventoryTask.items.filter((item) => {
+      const text = `${item.workSnapshot.artist}${item.workSnapshot.title}${item.workSnapshot.exhibit}`;
+      const matchQuery = text.includes(inventoryQuery.trim());
+      const matchStatus = inventoryItemFilter === '全部状态' || item.status === inventoryItemFilter;
+      return matchQuery && matchStatus;
+    });
+  }, [selectedInventoryTask, inventoryQuery, inventoryItemFilter]);
+
+  const inventoryStats = useMemo(() => {
+    const activeTasks = inventoryTasks.filter((t) => t.status === '进行中').length;
+    const completedTasks = inventoryTasks.filter((t) => t.status === '已完成').length;
+    return {
+      total: inventoryTasks.length,
+      active: activeTasks,
+      completed: completedTasks
+    };
+  }, [inventoryTasks]);
 
   const filteredStatements = useMemo(() => {
     return statements
@@ -1698,6 +1812,267 @@ function App() {
           </div>
         )}
       </section>
+
+      {showInventoryForm && (
+        <section className="panel inquiry-form-panel">
+          <div className="panel-header">
+            <h2><ClipboardList size={18} />创建库存盘点任务</h2>
+            <button className="ghost small" onClick={() => setShowInventoryForm(false)}>收起</button>
+          </div>
+          <form className="inquiry-form" onSubmit={createInventoryTask}>
+            <div className="form-row">
+              <label><span className="label-icon"><Tag size={14} /></span>
+                <input
+                  placeholder="盘点任务名称 *"
+                  value={inventoryForm.name}
+                  onChange={(e) => setInventoryForm({ ...inventoryForm, name: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="form-row">
+              <label><span className="label-icon"><MessageCircle size={14} /></span>
+                <input
+                  placeholder="备注说明 (选填)"
+                  value={inventoryForm.note}
+                  onChange={(e) => setInventoryForm({ ...inventoryForm, note: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="form-hint">
+              <Info size={12} /> 创建时将自动抓取当前所有作品的状态快照，盘点过程中不受后续作品编辑影响
+            </div>
+            <div className="form-actions">
+              <button type="button" className="ghost" onClick={() => setShowInventoryForm(false)}>取消</button>
+              <button type="submit">创建盘点任务</button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {selectedInventoryTask ? (
+        <section className="panel">
+          <div className="toolbar">
+            <h2>
+              <button className="ghost small" onClick={() => { setSelectedInventoryId(null); setInventoryQuery(''); setInventoryItemFilter('全部状态'); }}>
+                ← 返回盘点列表
+              </button>
+              <span style={{ marginLeft: '8px' }}>{selectedInventoryTask.name}</span>
+            </h2>
+            <label><Search size={16} />
+              <input
+                placeholder="搜索作品/艺术家"
+                value={inventoryQuery}
+                onChange={(e) => setInventoryQuery(e.target.value)}
+              />
+            </label>
+            <div className="toolbar-right">
+              <label><Filter size={16} />
+                <select value={inventoryItemFilter} onChange={(e) => setInventoryItemFilter(e.target.value)}>
+                  <option value="全部状态">全部状态</option>
+                  {INVENTORY_STATUS.map((s) => <option key={s}>{s}</option>)}
+                </select>
+              </label>
+              {selectedInventoryTask.status === '进行中' ? (
+                <button onClick={() => completeInventoryTask(selectedInventoryTask.id)}>
+                  <CheckSquare size={14} /> 完成盘点
+                </button>
+              ) : (
+                <button className="ghost" onClick={() => reopenInventoryTask(selectedInventoryTask.id)}>
+                  <Pencil size={14} /> 重新打开
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="inventory-summary">
+            <div className="inventory-stat-card">
+              <div className="stat-icon" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
+                <Package size={20} />
+              </div>
+              <div className="stat-info">
+                <span className="stat-label">作品总数</span>
+                <strong className="stat-value">{selectedInventoryTask.totalCount}件</strong>
+              </div>
+            </div>
+            <div className="inventory-stat-card">
+              <div className="stat-icon" style={{ background: '#dcfce7', color: '#15803d' }}>
+                <CheckCircle2 size={20} />
+              </div>
+              <div className="stat-info">
+                <span className="stat-label">已核对</span>
+                <strong className="stat-value" style={{ color: '#15803d' }}>{selectedInventoryTask.checkedCount}件</strong>
+              </div>
+            </div>
+            <div className="inventory-stat-card">
+              <div className="stat-icon" style={{ background: '#fef3c7', color: '#92400e' }}>
+                <AlertTriangle size={20} />
+              </div>
+              <div className="stat-info">
+                <span className="stat-label">异常</span>
+                <strong className="stat-value" style={{ color: '#92400e' }}>{selectedInventoryTask.exceptionCount}件</strong>
+              </div>
+            </div>
+            <div className="inventory-stat-card">
+              <div className="stat-icon" style={{ background: '#fee2e2', color: '#991b1b' }}>
+                <XCircle size={20} />
+              </div>
+              <div className="stat-info">
+                <span className="stat-label">缺失</span>
+                <strong className="stat-value" style={{ color: '#991b1b' }}>{selectedInventoryTask.missingCount}件</strong>
+              </div>
+            </div>
+          </div>
+
+          {(selectedInventoryTask.exceptionCount > 0 || selectedInventoryTask.missingCount > 0) && (
+            <div className="inventory-alert-summary">
+              <h3><AlertTriangle size={16} /> 异常摘要</h3>
+              <div className="inventory-alert-list">
+                {selectedInventoryTask.items.filter((i) => i.status === '异常' || i.status === '缺失').map((item) => (
+                  <div key={item.id} className={`inventory-alert-item alert-${item.status}`}>
+                    <span className="alert-tag">{item.status}</span>
+                    <strong>{item.workSnapshot.title}</strong>
+                    <span className="alert-artist">{item.workSnapshot.artist}</span>
+                    <span className="alert-exhibit">原状态：{item.workSnapshot.exhibit}</span>
+                    {item.note && <span className="alert-note">备注：{item.note}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="inventory-progress-bar">
+            <div
+              className="inventory-progress-fill"
+              style={{
+                width: `${selectedInventoryTask.totalCount > 0
+                  ? ((selectedInventoryTask.checkedCount + selectedInventoryTask.exceptionCount + selectedInventoryTask.missingCount) / selectedInventoryTask.totalCount) * 100
+                  : 0}%`
+              }}
+            />
+          </div>
+          <p className="inventory-progress-text">
+            盘点进度：{selectedInventoryTask.totalCount > 0
+              ? Math.round(((selectedInventoryTask.checkedCount + selectedInventoryTask.exceptionCount + selectedInventoryTask.missingCount) / selectedInventoryTask.totalCount) * 100)
+              : 0}%
+          </p>
+
+          {filteredInventoryItems.length === 0 ? (
+            <p className="empty-tip">没有匹配的作品</p>
+          ) : (
+            <div className="inventory-items">
+              {filteredInventoryItems.map((item) => (
+                <div key={item.id} className={`inventory-item inventory-status-${item.status}`}>
+                  <div className="inventory-item-head">
+                    <strong>{item.workSnapshot.title}</strong>
+                    <select
+                      value={item.status}
+                      onChange={(e) => updateInventoryItem(selectedInventoryTask.id, item.id, { status: e.target.value })}
+                      disabled={selectedInventoryTask.status === '已完成'}
+                      className={`status-select status-inv-${item.status}`}
+                    >
+                      {INVENTORY_STATUS.map((s) => <option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <span className="inventory-item-artist">{item.workSnapshot.artist} · ¥{Number(item.workSnapshot.price).toLocaleString()}</span>
+                  <p className="inventory-item-meta">
+                    {item.workSnapshot.inDate}入库 · {item.workSnapshot.exhibit} · {item.workSnapshot.sale}
+                  </p>
+                  {item.note && <p className="inventory-item-note">备注：{item.note}</p>}
+                  {selectedInventoryTask.status === '进行中' && (
+                    <div className="inventory-item-actions">
+                      <input
+                        type="text"
+                        placeholder="添加盘点备注..."
+                        className="inventory-note-input"
+                        value={item.note}
+                        onChange={(e) => updateInventoryItem(selectedInventoryTask.id, item.id, { note: e.target.value })}
+                      />
+                    </div>
+                  )}
+                  {item.checkedAt && (
+                    <span className="inventory-checked-time">
+                      {item.status === '未核对' ? '' : `于 ${new Date(item.checkedAt).toLocaleString('zh-CN')}`}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
+        <section className="panel">
+          <div className="toolbar">
+            <h2><ClipboardList size={18} />库存盘点任务 ({filteredInventoryTasks.length})</h2>
+            <label><Filter size={16} />
+              <select value={inventoryFilter} onChange={(e) => setInventoryFilter(e.target.value)}>
+                <option value="全部任务">全部任务</option>
+                {INVENTORY_TASK_STATUS.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </label>
+            <div className="toolbar-right">
+              <button onClick={() => setShowInventoryForm(true)}>
+                <Plus size={14} /> 新建盘点
+              </button>
+            </div>
+          </div>
+
+          <div className="inventory-task-stats">
+            <span className="inv-stat-item">共 {inventoryStats.total} 次盘点</span>
+            <span className="inv-stat-item active">进行中 {inventoryStats.active}</span>
+            <span className="inv-stat-item done">已完成 {inventoryStats.completed}</span>
+          </div>
+
+          {filteredInventoryTasks.length === 0 ? (
+            <p className="empty-tip">暂无盘点任务，点击"新建盘点"开始第一次盘点。</p>
+          ) : (
+            <div className="inventory-task-list">
+              {filteredInventoryTasks.map((task) => (
+                <div key={task.id} className={`inventory-task-card ${task.status === '已完成' ? 'task-completed' : 'task-active'}`}>
+                  <div className="inventory-task-head">
+                    <div>
+                      <strong className="inventory-task-name">{task.name}</strong>
+                      <span className="inventory-task-date">
+                        创建于 {new Date(task.createdAt).toLocaleDateString('zh-CN')}
+                      </span>
+                    </div>
+                    <span className={`status-tag ${task.status === '已完成' ? 'status-confirmed' : 'status-unconfirmed'}`}>
+                      {task.status === '已完成' ? <CheckCircle2 size={14} /> : <Clock size={14} />}
+                      {task.status}
+                    </span>
+                  </div>
+                  {task.note && <p className="inventory-task-note">{task.note}</p>}
+                  <div className="inventory-task-stats-row">
+                    <span>共 {task.totalCount} 件</span>
+                    <span style={{ color: '#15803d' }}>已核对 {task.checkedCount}</span>
+                    <span style={{ color: '#92400e' }}>异常 {task.exceptionCount}</span>
+                    <span style={{ color: '#991b1b' }}>缺失 {task.missingCount}</span>
+                  </div>
+                  <div className="inventory-task-progress">
+                    <div
+                      className="progress-bar-inner"
+                      style={{
+                        width: `${task.totalCount > 0
+                          ? ((task.checkedCount + task.exceptionCount + task.missingCount) / task.totalCount) * 100
+                          : 0}%`
+                      }}
+                    />
+                  </div>
+                  <div className="inventory-task-actions">
+                    <button onClick={() => setSelectedInventoryId(task.id)}>
+                      <Eye size={14} /> 查看详情
+                    </button>
+                    {task.completedAt && (
+                      <span className="inventory-completed-time">
+                        完成于 {new Date(task.completedAt).toLocaleDateString('zh-CN')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="bottom">
         <div className="panel">

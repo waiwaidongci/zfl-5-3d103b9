@@ -212,4 +212,314 @@ select:disabled { background: #f5f5f2; color: #67655e; cursor: not-allowed; }
 
 .statement-card-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 
-@media (max-width: 900px) { main { padding: 16px; } .hero { align-items: start; flex-direction: column; } .forms, .bottom, .toolbar, .split, .toolbar-right { grid-template-columns: 1fr; } .toolbar-right { flex-direction: column; align-items: stretch; } .inquiry-date { margin-left: 0; } .settlement-stats { grid-template-columns: 1fr; } .batch-table { font-size: 13px; } .batch-table th, .batch-table td { padding: 8px 10px; } .order-stats { grid-template-columns: 1fr 1fr; } .statement-summary-bar { flex-direction: column; } .statement-summary-stats { width: 100%; } .statement-card-stats { grid-template-columns: 1fr 1fr; } }
+.inventory-task-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.inv-stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #f5f5f2;
+  border: 1px solid #e5e2dc;
+  color: #67655e;
+}
+.inv-stat-item.active {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+.inv-stat-item.done {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.inventory-task-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+.inventory-task-card {
+  border: 1px solid #e5e2dc;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fbfbf8;
+}
+.inventory-task-card.task-active {
+  border-left: 4px solid #f59e0b;
+  background: #fffbeb;
+}
+.inventory-task-card.task-completed {
+  border-left: 4px solid #10b981;
+  background: #f0fdf4;
+  opacity: 0.95;
+}
+.inventory-task-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.inventory-task-name {
+  font-size: 16px;
+  display: block;
+}
+.inventory-task-date {
+  font-size: 12px;
+  color: #8a877f;
+  display: block;
+  margin-top: 2px;
+}
+.inventory-task-note {
+  font-size: 13px;
+  color: #67655e;
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+}
+.inventory-task-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  margin: 10px 0;
+  color: #67655e;
+}
+.inventory-task-progress {
+  height: 6px;
+  background: #e5e2dc;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.progress-bar-inner {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.inventory-task-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e2dc;
+}
+.inventory-completed-time {
+  font-size: 12px;
+  color: #8a877f;
+}
+
+.inventory-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.inventory-stat-card {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid #e5e2dc;
+  background: #fbfbf8;
+}
+
+.inventory-alert-summary {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.inventory-alert-summary h3 {
+  margin: 0 0 12px 0;
+  font-size: 15px;
+  color: #991b1b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inventory-alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.inventory-alert-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: #fff;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.alert-tag {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+}
+.alert-异常 .alert-tag {
+  background: #fef3c7;
+  color: #92400e;
+}
+.alert-缺失 .alert-tag {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.alert-artist {
+  color: #67655e;
+}
+.alert-exhibit {
+  color: #8a877f;
+  font-size: 12px;
+}
+.alert-note {
+  color: #44403c;
+  font-style: italic;
+}
+
+.inventory-progress-bar {
+  height: 8px;
+  background: #e5e2dc;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 16px 0 6px;
+}
+.inventory-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #22c55e);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.inventory-progress-text {
+  text-align: right;
+  font-size: 12px;
+  color: #67655e;
+  margin: 0 0 16px 0;
+}
+
+.inventory-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+.inventory-item {
+  border: 1px solid #e5e2dc;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfbf8;
+}
+.inventory-item.inventory-status-已核对 {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+.inventory-item.inventory-status-异常 {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+.inventory-item.inventory-status-缺失 {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+.inventory-item.inventory-status-未核对 {
+  opacity: 0.85;
+}
+.inventory-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.inventory-item-artist {
+  display: block;
+  color: #67655e;
+  font-size: 13px;
+}
+.inventory-item-meta {
+  font-size: 12px;
+  color: #8a877f;
+  margin: 6px 0;
+}
+.inventory-item-note {
+  font-size: 12px;
+  color: #44403c;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  margin: 6px 0;
+}
+.inventory-item-actions {
+  margin-top: 10px;
+}
+.inventory-note-input {
+  width: 100%;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px dashed #d7d4cc;
+  border-radius: 6px;
+  background: #fff;
+}
+.inventory-note-input:focus {
+  outline: none;
+  border-color: #8a877f;
+  border-style: solid;
+}
+.inventory-checked-time {
+  display: block;
+  font-size: 11px;
+  color: #8a877f;
+  margin-top: 8px;
+  text-align: right;
+}
+
+.status-inv-未核对 {
+  background: #f5f5f4;
+  border-color: #d6d3d1;
+  color: #57534e;
+}
+.status-inv-已核对 {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+.status-inv-异常 {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+.status-inv-缺失 {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+@media (max-width: 900px) {
+  main { padding: 16px; }
+  .hero { align-items: start; flex-direction: column; }
+  .forms, .bottom, .toolbar, .split, .toolbar-right { grid-template-columns: 1fr; }
+  .toolbar-right { flex-direction: column; align-items: stretch; }
+  .inquiry-date { margin-left: 0; }
+  .settlement-stats { grid-template-columns: 1fr; }
+  .batch-table { font-size: 13px; }
+  .batch-table th, .batch-table td { padding: 8px 10px; }
+  .order-stats { grid-template-columns: 1fr 1fr; }
+  .statement-summary-bar { flex-direction: column; }
+  .statement-summary-stats { width: 100%; }
+  .statement-card-stats { grid-template-columns: 1fr 1fr; }
+  .inventory-summary { grid-template-columns: 1fr 1fr; }
+  .inventory-task-list { grid-template-columns: 1fr; }
+  .inventory-items { grid-template-columns: 1fr; }
+}
