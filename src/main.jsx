@@ -113,32 +113,36 @@ function countDelimitersOutsideQuotes(line, delimiter) {
   return count;
 }
 
-function repairSplitThousandSeparator(cells, expectedFields) {
+function repairSplitThousandSeparator(cells, expectedFields, priceIndex) {
   if (cells.length <= expectedFields) return cells;
+  if (priceIndex < 0 || priceIndex >= cells.length) return cells;
 
-  const looksLikePricePart = (s) => {
-    const trimmed = s.trim().replace(/[￥¥$€\s]/g, '');
-    return /^\d{1,3}$/.test(trimmed) || /^\d{1,3}(\.\d+)?$/.test(trimmed);
-  };
+  const extraCells = cells.length - expectedFields;
+  const priceParts = cells.slice(priceIndex, priceIndex + extraCells + 1);
+  if (priceParts.length !== extraCells + 1) return cells;
 
-  const looksLikeDecimal = (s) => {
-    const trimmed = s.trim();
-    return /^\d+$/.test(trimmed) || /^\d+\.\d+$/.test(trimmed);
-  };
+  const normalizePricePart = (s) => s.trim().replace(/[￥¥$€\s]/g, '');
+  const firstPart = normalizePricePart(priceParts[0]);
+  const restParts = priceParts.slice(1).map((part) => part.trim());
+  const validThousandParts = (
+    /^\d{1,3}$/.test(firstPart) &&
+    restParts.length > 0 &&
+    restParts.every((part, idx) => idx === restParts.length - 1
+      ? /^\d{3}(\.\d+)?$/.test(part)
+      : /^\d{3}$/.test(part))
+  );
 
-  const result = [];
-  let i = 0;
-  while (i < cells.length) {
-    if (i < cells.length - 1 && looksLikePricePart(cells[i]) && looksLikeDecimal(cells[i + 1])) {
-      const merged = cells[i].trim() + ',' + cells[i + 1].trim();
-      result.push(merged);
-      i += 2;
-    } else {
-      result.push(cells[i]);
-      i++;
-    }
+  if (!validThousandParts) {
+    return cells;
   }
-  return result;
+
+  const repaired = [
+    ...cells.slice(0, priceIndex),
+    priceParts.map((part) => part.trim()).join(','),
+    ...cells.slice(priceIndex + extraCells + 1)
+  ];
+
+  return repaired.length === expectedFields ? repaired : cells;
 }
 
 function parseCSV(text) {
@@ -182,7 +186,8 @@ function parseCSV(text) {
   const rows = [];
   for (let i = dataStart; i < lines.length; i++) {
     let cells = parseLine(lines[i]);
-    cells = repairSplitThousandSeparator(cells, 6);
+    const priceIndex = headerMap ? headerMap['价格'] : 2;
+    cells = repairSplitThousandSeparator(cells, CSV_COLUMNS.length, priceIndex);
     if (cells.every(c => c === '')) continue;
 
     let row;
