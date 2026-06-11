@@ -640,10 +640,6 @@ function App() {
     if (!orderForm.dealDate) {
       errors.push('请选择成交日期');
     }
-    if (orderForm.balanceStatus === '已支付' && deposit < dealPrice && dealPrice > 0) {
-      errors.push('尾款状态为"已支付"时，订金应等于成交价');
-    }
-
     setOrderFormErrors(errors);
     return errors.length === 0;
   }
