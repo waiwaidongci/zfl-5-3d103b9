@@ -57,8 +57,92 @@ const VALID_EXHIBIT = ['展出中', '库房', '借展', '退回'];
 const VALID_SALE = ['待售', '已预订', '已售'];
 const CSV_COLUMNS = ['艺术家', '作品名', '价格', '入库日期', '展态', '销售状态'];
 
+function parseCSVLine(line, delimiter) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const nextChar = line[i + 1];
+
+    if (inQuotes) {
+      if (char === '"' && nextChar === '"') {
+        current += '"';
+        i++;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        current += char;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === delimiter) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function countDelimitersOutsideQuotes(line, delimiter) {
+  let count = 0;
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const nextChar = line[i + 1];
+    if (inQuotes) {
+      if (char === '"' && nextChar === '"') {
+        i++;
+      } else if (char === '"') {
+        inQuotes = false;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === delimiter) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+function repairSplitThousandSeparator(cells, expectedFields) {
+  if (cells.length <= expectedFields) return cells;
+
+  const looksLikePricePart = (s) => {
+    const trimmed = s.trim().replace(/[￥¥$€\s]/g, '');
+    return /^\d{1,3}$/.test(trimmed) || /^\d{1,3}(\.\d+)?$/.test(trimmed);
+  };
+
+  const looksLikeDecimal = (s) => {
+    const trimmed = s.trim();
+    return /^\d+$/.test(trimmed) || /^\d+\.\d+$/.test(trimmed);
+  };
+
+  const result = [];
+  let i = 0;
+  while (i < cells.length) {
+    if (i < cells.length - 1 && looksLikePricePart(cells[i]) && looksLikeDecimal(cells[i + 1])) {
+      const merged = cells[i].trim() + ',' + cells[i + 1].trim();
+      result.push(merged);
+      i += 2;
+    } else {
+      result.push(cells[i]);
+      i++;
+    }
+  }
+  return result;
+}
+
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+  const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
   if (lines.length === 0) return { header: null, rows: [] };
 
   const detectDelimiter = (line) => {
@@ -66,7 +150,7 @@ function parseCSV(text) {
     let best = ',';
     let maxCount = -1;
     for (const d of candidates) {
-      const count = line.split(d).length;
+      const count = countDelimitersOutsideQuotes(line, d);
       if (count > maxCount) {
         maxCount = count;
         best = d;
@@ -76,7 +160,7 @@ function parseCSV(text) {
   };
 
   const delimiter = detectDelimiter(lines[0]);
-  const parseLine = (line) => line.split(delimiter).map(cell => cell.trim().replace(/^"|"$/g, ''));
+  const parseLine = (line) => parseCSVLine(line, delimiter);
 
   const firstLine = parseLine(lines[0]);
   const hasHeader = firstLine.some(cell => CSV_COLUMNS.includes(cell));
@@ -97,7 +181,8 @@ function parseCSV(text) {
 
   const rows = [];
   for (let i = dataStart; i < lines.length; i++) {
-    const cells = parseLine(lines[i]);
+    let cells = parseLine(lines[i]);
+    cells = repairSplitThousandSeparator(cells, 6);
     if (cells.every(c => c === '')) continue;
 
     let row;
