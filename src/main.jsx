@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, FileUp, Filter, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, Search, Tag, TrendingUp, User, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, Clock, Coins, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, Search, Tag, TrendingUp, User, XCircle } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -283,17 +283,20 @@ function validateRow(row, existingTitles, existingArtists, batchTitles) {
   if (sale && !VALID_SALE.includes(sale)) {
     errors.push(`销售状态"${row.sale}"无效，应为：${VALID_SALE.join('、')}`);
   }
+  const normalizedSale = VALID_SALE.includes(sale) ? sale : '待售';
+  const safeSale = normalizedSale === '已售' ? '待售' : normalizedSale;
 
   return {
     valid: errors.length === 0,
     errors,
+    warnings: normalizedSale === '已售' ? ['「已售」状态需通过订单登记，导入后为「待售」'] : [],
     cleaned: {
       artist: artistName,
       title,
       price: price ?? 0,
       inDate: inDate || iso(0),
       exhibit: VALID_EXHIBIT.includes(exhibit) ? exhibit : '展出中',
-      sale: VALID_SALE.includes(sale) ? sale : '待售'
+      sale: safeSale
     }
   };
 }
@@ -320,6 +323,7 @@ function App() {
   const [orderForm, setOrderForm] = useState({ workId: '', customerName: '', customerPhone: '', dealPrice: '', deposit: '', balanceStatus: '待支付', dealDate: iso(0), note: '' });
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState(null);
+  const [orderFormErrors, setOrderFormErrors] = useState([]);
   const [orderFilterRaw, setOrderFilterRaw] = useStorage('zfl-5-order-filter', '全部订单');
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
@@ -439,6 +443,16 @@ function App() {
     return map;
   }, [orders]);
 
+  const soldWithoutOrderIds = useMemo(() => {
+    const set = new Set();
+    works.forEach((work) => {
+      if (work.sale === '已售' && !activeOrderMap[work.id]) {
+        set.add(work.id);
+      }
+    });
+    return set;
+  }, [works, activeOrderMap]);
+
   const filteredOrders = useMemo(() => {
     return orders
       .filter((order) => {
@@ -477,7 +491,16 @@ function App() {
   function addWork(event) {
     event.preventDefault();
     if (!workForm.title.trim() || !workForm.artist) return;
-    setWorks([{ id: crypto.randomUUID(), ...workForm, price: Number(workForm.price || 0), saleDate: null, settlementDate: null }, ...works]);
+    const safeSale = workForm.sale === '已售' ? '待售' : workForm.sale;
+    setWorks([{
+      id: crypto.randomUUID(),
+      ...workForm,
+      sale: safeSale,
+      price: Number(workForm.price || 0),
+      saleDate: safeSale === '已售' ? iso(0) : null,
+      settlement: '未结算',
+      settlementDate: null
+    }, ...works]);
     setWorkForm({ ...workForm, title: '', price: '', inDate: iso(0), exhibit: '展出中', sale: '待售', settlement: '未结算' });
   }
 
@@ -559,6 +582,7 @@ function App() {
   function openOrderForWork(workId) {
     const selectedWork = works.find((w) => w.id === workId);
     setEditingOrderId(null);
+    setOrderFormErrors([]);
     setOrderForm({
       workId,
       customerName: '',
@@ -576,6 +600,7 @@ function App() {
     const order = orders.find((o) => o.id === orderId);
     if (!order) return;
     setEditingOrderId(orderId);
+    setOrderFormErrors([]);
     setOrderForm({
       workId: order.workId,
       customerName: order.customerName,
@@ -589,9 +614,43 @@ function App() {
     setShowOrderForm(true);
   }
 
+  function validateOrderForm() {
+    const errors = [];
+    const dealPrice = Number(orderForm.dealPrice || 0);
+    const deposit = Number(orderForm.deposit || 0);
+
+    if (!orderForm.workId) {
+      errors.push('请选择作品');
+    }
+    if (!orderForm.customerName.trim()) {
+      errors.push('请填写客户姓名');
+    }
+    if (!orderForm.customerPhone.trim()) {
+      errors.push('请填写联系方式');
+    }
+    if (!orderForm.dealPrice || dealPrice <= 0) {
+      errors.push('成交价必须大于 0');
+    }
+    if (deposit < 0) {
+      errors.push('订金不能为负数');
+    }
+    if (deposit > dealPrice && dealPrice > 0) {
+      errors.push('订金不能大于成交价');
+    }
+    if (!orderForm.dealDate) {
+      errors.push('请选择成交日期');
+    }
+    if (orderForm.balanceStatus === '已支付' && deposit < dealPrice && dealPrice > 0) {
+      errors.push('尾款状态为"已支付"时，订金应等于成交价');
+    }
+
+    setOrderFormErrors(errors);
+    return errors.length === 0;
+  }
+
   function addOrder(event) {
     event.preventDefault();
-    if (!orderForm.workId || !orderForm.customerName.trim() || !orderForm.customerPhone.trim()) return;
+    if (!validateOrderForm()) return;
 
     const selectedWork = works.find((w) => w.id === orderForm.workId);
     const dealPrice = Number(orderForm.dealPrice || 0);
@@ -639,6 +698,7 @@ function App() {
     }
 
     setOrderForm({ workId: '', customerName: '', customerPhone: '', dealPrice: '', deposit: '', balanceStatus: '待支付', dealDate: iso(0), note: '' });
+    setOrderFormErrors([]);
     setEditingOrderId(null);
     setShowOrderForm(false);
   }
@@ -676,12 +736,16 @@ function App() {
     const batchTitles = new Set();
     const validRows = [];
     const errorRows = [];
+    const warningRows = [];
 
     parsed.rows.forEach((row) => {
       const result = validateRow(row, existingTitles, existingArtists, batchTitles);
       if (result.valid) {
         batchTitles.add(result.cleaned.title);
-        validRows.push({ ...row, cleaned: result.cleaned });
+        validRows.push({ ...row, cleaned: result.cleaned, warnings: result.warnings || [] });
+        if (result.warnings && result.warnings.length > 0) {
+          warningRows.push({ ...row, warnings: result.warnings });
+        }
       } else {
         errorRows.push({ ...row, errors: result.errors });
       }
@@ -690,6 +754,7 @@ function App() {
     setBatchPreview({
       validRows,
       errorRows,
+      warningRows,
       totalRows: parsed.rows.length,
       header: parsed.header,
       headerMap: parsed.headerMap
@@ -762,10 +827,15 @@ function App() {
             <select value={workForm.exhibit} onChange={(e) => setWorkForm({ ...workForm, exhibit: e.target.value })}>
               <option>展出中</option><option>库房</option><option>借展</option><option>退回</option>
             </select>
-            <select value={workForm.sale} onChange={(e) => setWorkForm({ ...workForm, sale: e.target.value })}>
-              <option>待售</option><option>已预订</option><option>已售</option>
+            <select
+              value={workForm.sale === '已售' ? '待售' : workForm.sale}
+              onChange={(e) => setWorkForm({ ...workForm, sale: e.target.value })}
+              title="已售状态需通过「登记销售」创建订单后自动设置"
+            >
+              <option>待售</option><option>已预订</option>
             </select>
           </div>
+          <p className="form-hint"><Info size={12} /> 作品售出需点击「登记销售」创建订单，系统自动标记为已售</p>
           <button>保存作品</button>
         </form>
       </section>
@@ -787,8 +857,9 @@ function App() {
             const activeLoan = isWorkOnLoan[work.id];
             const today = new Date().toISOString().slice(0, 10);
             const isOverdue = activeLoan && activeLoan.expectedReturnDate < today;
+            const soldWithoutOrder = soldWithoutOrderIds.has(work.id);
             return (
-              <article key={work.id} className={activeLoan ? 'work-on-loan' : ''}>
+              <article key={work.id} className={`${activeLoan ? 'work-on-loan' : ''} ${soldWithoutOrder ? 'work-sold-orphan' : ''}`}>
                 <strong>{work.title}</strong>
                 <span>{work.artist} · ¥{Number(work.price).toLocaleString()}</span>
                 <p>{work.inDate}入库 · {work.exhibit} · {work.sale} · {work.settlement}</p>
@@ -807,10 +878,20 @@ function App() {
                     <span>订单：{activeOrderMap[work.id].customerName} · 尾款{activeOrderMap[work.id].balanceStatus}</span>
                   </div>
                 )}
+                {soldWithoutOrder && (
+                  <div className="order-badge order-orphan">
+                    <AlertCircle size={12} />
+                    <span>缺少订单记录（旧数据）</span>
+                  </div>
+                )}
                 <div className="actions">
                   {activeOrderMap[work.id] ? (
                     <button onClick={() => cancelOrder(activeOrderMap[work.id].id)}>
                       <XCircle size={14} /> 撤回销售
+                    </button>
+                  ) : soldWithoutOrder ? (
+                    <button onClick={() => openOrderForWork(work.id)}>
+                      <Receipt size={14} /> 补录订单
                     </button>
                   ) : (
                     <button onClick={() => openOrderForWork(work.id)}>
@@ -863,6 +944,11 @@ function App() {
                   <span className="batch-summary-item error">
                     <XCircle size={16} /> 错误行 {batchPreview.errorRows.length} 行
                   </span>
+                  {batchPreview.warningRows && batchPreview.warningRows.length > 0 && (
+                    <span className="batch-summary-item warning">
+                      <AlertCircle size={16} /> 提示 {batchPreview.warningRows.length} 行
+                    </span>
+                  )}
                   <span className="batch-summary-item total">
                     共解析 {batchPreview.totalRows} 行
                   </span>
@@ -889,6 +975,7 @@ function App() {
                             <th>入库日期</th>
                             <th>展态</th>
                             <th>销售状态</th>
+                            <th>说明</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -900,6 +987,11 @@ function App() {
                               <td>{row.cleaned.inDate}</td>
                               <td>{row.cleaned.exhibit}</td>
                               <td>{row.cleaned.sale}</td>
+                              <td className="batch-warning-cell">
+                                {row.warnings && row.warnings.map((w, i) => (
+                                  <span key={i} className="batch-warning-tag"><AlertCircle size={12} /> {w}</span>
+                                ))}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1099,8 +1191,15 @@ function App() {
                 <input placeholder="备注 (选填)" value={orderForm.note} onChange={(e) => setOrderForm({ ...orderForm, note: e.target.value })} />
               </label>
             </div>
+            {orderFormErrors.length > 0 && (
+              <div className="form-errors">
+                {orderFormErrors.map((err, idx) => (
+                  <span key={idx} className="form-error-tag"><AlertCircle size={12} /> {err}</span>
+                ))}
+              </div>
+            )}
             <div className="form-actions">
-              <button type="button" className="ghost" onClick={() => { setShowOrderForm(false); setEditingOrderId(null); }}>取消</button>
+              <button type="button" className="ghost" onClick={() => { setShowOrderForm(false); setEditingOrderId(null); setOrderFormErrors([]); }}>取消</button>
               <button type="submit">{editingOrderId ? '保存修改' : '确认成交'}</button>
             </div>
           </form>

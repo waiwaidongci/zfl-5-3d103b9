@@ -116,6 +116,9 @@ button.status-select { cursor: pointer; display: inline-flex; align-items: cente
 .batch-error-tag { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 6px; font-size: 12px; font-weight: 500; }
 
 .order-badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; background: #dcfce7; border: 1px solid #86efac; color: #166534; font-size: 13px; margin: 8px 0 4px; font-weight: 500; }
+.order-badge.order-orphan { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+
+.work-sold-orphan { border-color: #fcd34d; background: #fffdf5; position: relative; }
 
 .order-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .order-stat-item { background: #fbfbf8; border: 1px solid #e5e2dc; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
@@ -144,5 +147,15 @@ button.status-select { cursor: pointer; display: inline-flex; align-items: cente
 .settlement-amounts .settlement-commission { color: #7c3aed; font-weight: 500; }
 
 select:disabled { background: #f5f5f2; color: #67655e; cursor: not-allowed; }
+
+.form-errors { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; }
+.form-error-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #991b1b; font-weight: 500; }
+
+.form-hint { margin: 0; padding: 8px 12px; font-size: 12px; color: #67655e; background: #f5f5f2; border: 1px dashed #d7d4cc; border-radius: 6px; display: flex; align-items: center; gap: 6px; }
+.form-hint svg { flex-shrink: 0; }
+
+.batch-summary-item.warning { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
+.batch-warning-cell { min-width: 180px; }
+.batch-warning-tag { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; border-radius: 6px; font-size: 12px; font-weight: 500; }
 
 @media (max-width: 900px) { main { padding: 16px; } .hero { align-items: start; flex-direction: column; } .forms, .bottom, .toolbar, .split, .toolbar-right { grid-template-columns: 1fr; } .toolbar-right { flex-direction: column; align-items: stretch; } .inquiry-date { margin-left: 0; } .settlement-stats { grid-template-columns: 1fr; } .batch-table { font-size: 13px; } .batch-table th, .batch-table td { padding: 8px 10px; } .order-stats { grid-template-columns: 1fr 1fr; } }
