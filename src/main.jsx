@@ -1046,11 +1046,7 @@ function App() {
   }
 
   function exportBackup() {
-    const data = {};
-    for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
-      const raw = localStorage.getItem(storageKey);
-      data[key] = raw ? JSON.parse(raw) : [];
-    }
+    const data = getCurrentDataFromState();
     const backup = {
       version: BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
