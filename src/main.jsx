@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RotateCcw, Search, TrendingUp, Upload, User, XCircle, ClipboardList, Eye, AlertTriangle, Package } from 'lucide-react';
 import './styles.css';
+import CustomerList from './CustomerList.jsx';
+import { buildCustomerProfile } from './customerUtils.js';
 
 const iso = (offset = 0) => {
   const date = new Date();
@@ -497,6 +499,14 @@ function App() {
       cancelledCount: orders.filter((o) => o.cancelledAt).length
     };
   }, [orders]);
+
+  const customerStats = useMemo(() => {
+    const list = buildCustomerProfile(inquiries, orders);
+    return {
+      totalCount: list.length,
+      dealedCount: list.filter((c) => c.orderCount > 0).length
+    };
+  }, [inquiries, orders]);
 
   function addArtist(event) {
     event.preventDefault();
@@ -1269,6 +1279,7 @@ function App() {
           <span><Banknote size={18} />¥{totalValue.toLocaleString()}</span>
           <span><Calendar size={18} />{settlementWorks.length}件待结算</span>
           <span><ArrowLeftRight size={18} />{onLoanCount}件借展中</span>
+          <span><User size={18} />{customerStats.totalCount}位客户</span>
         </div>
       </header>
 
@@ -1871,6 +1882,8 @@ function App() {
           </>
         )}
       </section>
+
+      <CustomerList inquiries={inquiries} orders={orders} />
 
       {showStatementForm && (
         <section className="panel inquiry-form-panel">
