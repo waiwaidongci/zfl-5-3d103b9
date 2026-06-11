@@ -31,8 +31,7 @@ function buildCustomerProfile(inquiries, orders) {
         phone: inq.customerPhone.trim(),
         inquiries: [],
         orders: [],
-        lastActiveAt: null,
-        lastInquiryWork: null
+        lastActiveAt: null
       });
     }
     const profile = customerMap.get(key);
@@ -40,7 +39,6 @@ function buildCustomerProfile(inquiries, orders) {
     const inqTime = new Date(inq.createdAt).getTime();
     if (!profile.lastActiveAt || inqTime > profile.lastActiveAt) {
       profile.lastActiveAt = inqTime;
-      profile.lastInquiryWork = inq.workTitle || null;
     }
   });
 
@@ -54,8 +52,7 @@ function buildCustomerProfile(inquiries, orders) {
         phone: order.customerPhone.trim(),
         inquiries: [],
         orders: [],
-        lastActiveAt: null,
-        lastInquiryWork: null
+        lastActiveAt: null
       });
     }
     const profile = customerMap.get(key);
@@ -63,9 +60,6 @@ function buildCustomerProfile(inquiries, orders) {
     const orderTime = new Date(order.dealDate || order.createdAt).getTime();
     if (!profile.lastActiveAt || orderTime > profile.lastActiveAt) {
       profile.lastActiveAt = orderTime;
-      if (!profile.lastInquiryWork) {
-        profile.lastInquiryWork = order.workTitle || null;
-      }
     }
   });
 
@@ -86,7 +80,7 @@ function buildCustomerProfile(inquiries, orders) {
         (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
       )[0];
       if (lastInquiry.status === INQUIRY_DEALED) {
-        followStatus = CUSTOMER_STATUS.FOLLOWING;
+        followStatus = CUSTOMER_STATUS.DEALED;
       } else if (lastInquiry.status === INQUIRY_ABANDONED) {
         followStatus = CUSTOMER_STATUS.INACTIVE;
       } else {
@@ -96,12 +90,21 @@ function buildCustomerProfile(inquiries, orders) {
       followStatus = CUSTOMER_STATUS.NEW;
     }
 
-    let displayWork = profile.lastInquiryWork;
-    if (!displayWork && profile.orders.length > 0) {
-      const lastOrder = profile.orders.sort(
-        (a, b) => new Date(b.dealDate || b.createdAt) - new Date(a.dealDate || a.createdAt)
-      )[0];
-      displayWork = lastOrder.workTitle || null;
+    const allActivities = [
+      ...profile.inquiries.map((inq) => ({
+        workTitle: inq.workTitle,
+        time: new Date(inq.createdAt).getTime()
+      })),
+      ...profile.orders.map((order) => ({
+        workTitle: order.workTitle,
+        time: new Date(order.dealDate || order.createdAt).getTime()
+      }))
+    ];
+
+    let displayWork = null;
+    if (allActivities.length > 0) {
+      allActivities.sort((a, b) => b.time - a.time);
+      displayWork = allActivities[0].workTitle || null;
     }
 
     customerList.push({
