@@ -10,14 +10,14 @@ const iso = (offset = 0) => {
 };
 
 const seedArtists = [
-  { id: crypto.randomUUID(), name: '谢青岚', phone: '13600001111', style: '纸本水墨', note: '月结，佣金35%' },
-  { id: crypto.randomUUID(), name: '赵以南', phone: '13700002222', style: '综合材料', note: '售后需确认装裱' }
+  { id: 'seed-artist-xieql', name: '谢青岚', phone: '13600001111', style: '纸本水墨', note: '月结，佣金35%' },
+  { id: 'seed-artist-zhaoyn', name: '赵以南', phone: '13700002222', style: '综合材料', note: '售后需确认装裱' }
 ];
 
 const seedWorks = [
-  { id: crypto.randomUUID(), artist: '谢青岚', title: '雨后天井', price: 12800, inDate: iso(-20), exhibit: '展出中', sale: '待售', settlement: '未结算' },
-  { id: crypto.randomUUID(), artist: '赵以南', title: '旧墙采样03', price: 8600, inDate: iso(-12), exhibit: '库房', sale: '已售', settlement: '待结算' },
-  { id: crypto.randomUUID(), artist: '谢青岚', title: '窄巷风声', price: 16600, inDate: iso(-5), exhibit: '借展', sale: '待售', settlement: '未结算' }
+  { id: 'seed-work-yhtj', artist: '谢青岚', title: '雨后天井', price: 12800, inDate: iso(-20), exhibit: '展出中', sale: '待售', settlement: '未结算' },
+  { id: 'seed-work-jqcy03', artist: '赵以南', title: '旧墙采样03', price: 8600, inDate: iso(-12), exhibit: '库房', sale: '已售', settlement: '待结算' },
+  { id: 'seed-work-zxfs', artist: '谢青岚', title: '窄巷风声', price: 16600, inDate: iso(-5), exhibit: '借展', sale: '待售', settlement: '未结算' }
 ];
 
 function useStorage(key, initial) {
@@ -44,8 +44,13 @@ function App() {
   const [artistForm, setArtistForm] = useState({ name: '', phone: '', style: '', note: '' });
   const [workForm, setWorkForm] = useState({ artist: '谢青岚', title: '', price: '', inDate: iso(0), exhibit: '展出中', sale: '待售', settlement: '未结算' });
   const [inquiryForm, setInquiryForm] = useState({ workId: '', customerName: '', customerPhone: '', intendedPrice: '', remark: '' });
-  const [inquiryFilter, setInquiryFilter] = useState('全部作品');
+  const [inquiryFilterRaw, setInquiryFilterRaw] = useStorage('zfl-5-inquiry-filter', '全部作品');
   const [showInquiryForm, setShowInquiryForm] = useState(false);
+
+  const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
+  const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
+    ? inquiryFilterRaw
+    : '全部作品';
 
   const filteredWorks = works.filter((work) => {
     const text = `${work.artist}${work.title}${work.exhibit}${work.sale}${work.settlement}`;
@@ -235,7 +240,7 @@ function App() {
         <div className="toolbar">
           <h2><MessageSquare size={18} />客户询价记录 ({filteredInquiries.length})</h2>
           <label><Filter size={16} />
-            <select value={inquiryFilter} onChange={(e) => setInquiryFilter(e.target.value)}>
+            <select value={inquiryFilter} onChange={(e) => setInquiryFilterRaw(e.target.value)}>
               <option value="全部作品">全部作品</option>
               {works.map((work) => <option key={work.id} value={work.id}>{work.title}</option>)}
             </select>
