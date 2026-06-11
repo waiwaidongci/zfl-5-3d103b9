@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Banknote, Brush, Calendar, Filter, Plus, Search } from 'lucide-react';
+import { Banknote, Brush, Calendar, ChevronDown, Filter, MessageCircle, MessageSquare, Phone, Plus, Search, Tag, User } from 'lucide-react';
 import './styles.css';
 
 const iso = (offset = 0) => {
@@ -33,13 +33,19 @@ function useStorage(key, initial) {
   return [value, update];
 }
 
+const INQUIRY_STATUS = ['待跟进', '跟进中', '已成交', '已放弃'];
+
 function App() {
   const [artists, setArtists] = useStorage('zfl-5-artists', seedArtists);
   const [works, setWorks] = useStorage('zfl-5-works', seedWorks);
+  const [inquiries, setInquiries] = useStorage('zfl-5-inquiries', []);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('全部展态');
   const [artistForm, setArtistForm] = useState({ name: '', phone: '', style: '', note: '' });
   const [workForm, setWorkForm] = useState({ artist: '谢青岚', title: '', price: '', inDate: iso(0), exhibit: '展出中', sale: '待售', settlement: '未结算' });
+  const [inquiryForm, setInquiryForm] = useState({ workId: '', customerName: '', customerPhone: '', intendedPrice: '', remark: '' });
+  const [inquiryFilter, setInquiryFilter] = useState('全部作品');
+  const [showInquiryForm, setShowInquiryForm] = useState(false);
 
   const filteredWorks = works.filter((work) => {
     const text = `${work.artist}${work.title}${work.exhibit}${work.sale}${work.settlement}`;
@@ -51,6 +57,20 @@ function App() {
     ...artist,
     works: works.filter((work) => work.artist === artist.name)
   })), [artists, works]);
+
+  const filteredInquiries = useMemo(() => {
+    return inquiries
+      .filter((inq) => inquiryFilter === '全部作品' || inq.workId === inquiryFilter)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }, [inquiries, inquiryFilter]);
+
+  const workInquiryCount = useMemo(() => {
+    const map = {};
+    inquiries.forEach((inq) => {
+      map[inq.workId] = (map[inq.workId] || 0) + 1;
+    });
+    return map;
+  }, [inquiries]);
 
   function addArtist(event) {
     event.preventDefault();
@@ -69,6 +89,34 @@ function App() {
 
   function updateWork(id, patch) {
     setWorks(works.map((work) => work.id === id ? { ...work, ...patch } : work));
+  }
+
+  function addInquiry(event) {
+    event.preventDefault();
+    if (!inquiryForm.workId || !inquiryForm.customerName.trim() || !inquiryForm.customerPhone.trim()) return;
+    const selectedWork = works.find((w) => w.id === inquiryForm.workId);
+    setInquiries([{
+      id: crypto.randomUUID(),
+      workId: inquiryForm.workId,
+      workTitle: selectedWork ? selectedWork.title : '',
+      customerName: inquiryForm.customerName.trim(),
+      customerPhone: inquiryForm.customerPhone.trim(),
+      intendedPrice: Number(inquiryForm.intendedPrice || 0),
+      remark: inquiryForm.remark.trim(),
+      status: '待跟进',
+      createdAt: new Date().toISOString()
+    }, ...inquiries]);
+    setInquiryForm({ workId: '', customerName: '', customerPhone: '', intendedPrice: '', remark: '' });
+    setShowInquiryForm(false);
+  }
+
+  function openInquiryForWork(workId) {
+    setInquiryForm({ ...inquiryForm, workId });
+    setShowInquiryForm(true);
+  }
+
+  function updateInquiryStatus(id, nextStatus) {
+    setInquiries(inquiries.map((inq) => inq.id === id ? { ...inq, status: nextStatus } : inq));
   }
 
   return (
@@ -121,7 +169,10 @@ function App() {
         <div className="toolbar">
           <h2>作品列表</h2>
           <label><Search size={16} /><input placeholder="搜索艺术家/作品/状态" value={query} onChange={(e) => setQuery(e.target.value)} /></label>
-          <label><Filter size={16} /><select value={status} onChange={(e) => setStatus(e.target.value)}><option>全部展态</option><option>展出中</option><option>库房</option><option>借展</option><option>退回</option></select></label>
+          <div className="toolbar-right">
+            <label><Filter size={16} /><select value={status} onChange={(e) => setStatus(e.target.value)}><option>全部展态</option><option>展出中</option><option>库房</option><option>借展</option><option>退回</option></select></label>
+            <button className="ghost" onClick={() => setShowInquiryForm(true)}><Plus size={14} /> 登记询价</button>
+          </div>
         </div>
         <div className="works">
           {filteredWorks.map((work) => (
@@ -132,10 +183,95 @@ function App() {
               <div className="actions">
                 <button onClick={() => updateWork(work.id, { sale: work.sale === '已售' ? '待售' : '已售', settlement: work.sale === '已售' ? '未结算' : '待结算' })}>{work.sale === '已售' ? '撤回销售' : '标记已售'}</button>
                 <button className="ghost" onClick={() => updateWork(work.id, { settlement: '已结算' })}>完成结算</button>
+                <button className="outline" onClick={() => openInquiryForWork(work.id)}>
+                  <MessageSquare size={14} /> 登记询价{workInquiryCount[work.id] ? ` (${workInquiryCount[work.id]})` : ''}
+                </button>
               </div>
             </article>
           ))}
         </div>
+      </section>
+
+      {showInquiryForm && (
+        <section className="panel inquiry-form-panel">
+          <div className="panel-header">
+            <h2><MessageSquare size={18} />登记客户询价</h2>
+            <button className="ghost small" onClick={() => setShowInquiryForm(false)}>收起</button>
+          </div>
+          <form className="inquiry-form" onSubmit={addInquiry}>
+            <div className="form-row">
+              <label><span className="label-icon"><Tag size={14} /></span>
+                <select value={inquiryForm.workId} onChange={(e) => setInquiryForm({ ...inquiryForm, workId: e.target.value })}>
+                  <option value="">请选择作品</option>
+                  {works.map((work) => <option key={work.id} value={work.id}>{work.title} — {work.artist}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><User size={14} /></span>
+                <input placeholder="客户姓名" value={inquiryForm.customerName} onChange={(e) => setInquiryForm({ ...inquiryForm, customerName: e.target.value })} />
+              </label>
+              <label><span className="label-icon"><Phone size={14} /></span>
+                <input placeholder="联系方式" value={inquiryForm.customerPhone} onChange={(e) => setInquiryForm({ ...inquiryForm, customerPhone: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><Banknote size={14} /></span>
+                <input type="number" placeholder="意向价格 (元)" value={inquiryForm.intendedPrice} onChange={(e) => setInquiryForm({ ...inquiryForm, intendedPrice: e.target.value })} />
+              </label>
+              <label><span className="label-icon"><MessageCircle size={14} /></span>
+                <input placeholder="备注 (选填)" value={inquiryForm.remark} onChange={(e) => setInquiryForm({ ...inquiryForm, remark: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="ghost" onClick={() => setShowInquiryForm(false)}>取消</button>
+              <button type="submit">保存询价</button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      <section className="panel">
+        <div className="toolbar">
+          <h2><MessageSquare size={18} />客户询价记录 ({filteredInquiries.length})</h2>
+          <label><Filter size={16} />
+            <select value={inquiryFilter} onChange={(e) => setInquiryFilter(e.target.value)}>
+              <option value="全部作品">全部作品</option>
+              {works.map((work) => <option key={work.id} value={work.id}>{work.title}</option>)}
+            </select>
+          </label>
+          <div></div>
+        </div>
+        {filteredInquiries.length === 0 ? (
+          <p className="empty-tip">暂无询价记录，点击上方"登记询价"开始记录。</p>
+        ) : (
+          <div className="inquiry-list">
+            {filteredInquiries.map((inq) => (
+              <div className="inquiry-item" key={inq.id}>
+                <div className="inquiry-head">
+                  <div>
+                    <strong className="inquiry-work">{inq.workTitle}</strong>
+                    <span className="inquiry-customer"><User size={12} />{inq.customerName} · <Phone size={12} />{inq.customerPhone}</span>
+                  </div>
+                  <div className="status-dropdown">
+                    <select
+                      value={inq.status}
+                      onChange={(e) => updateInquiryStatus(inq.id, e.target.value)}
+                      className={`status-select status-${inq.status}`}
+                    >
+                      {INQUIRY_STATUS.map((s) => <option key={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="inquiry-body">
+                  {inq.intendedPrice > 0 && <span className="inquiry-price"><Banknote size={12} />意向价 ¥{inq.intendedPrice.toLocaleString()}</span>}
+                  {inq.remark && <span className="inquiry-remark"><MessageCircle size={12} />{inq.remark}</span>}
+                  <span className="inquiry-date">{new Date(inq.createdAt).toLocaleString('zh-CN')}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="bottom">
