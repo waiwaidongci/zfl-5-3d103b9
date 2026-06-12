@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RotateCcw, Search, Tag, TrendingUp, Upload, User, XCircle, ClipboardList, Eye, AlertTriangle, Package, Shield } from 'lucide-react';
 import './styles.css';
 import CustomerList from './CustomerList.jsx';
+import CustomerDetail from './CustomerDetail.jsx';
 import DataHealthCenter from './DataHealthCenter.jsx';
 import SalesFunnel from './SalesFunnel.jsx';
 import { buildCustomerProfile } from './customerUtils.js';
@@ -350,6 +351,7 @@ function App() {
   const [showHealthCenter, setShowHealthCenter] = useState(false);
   const [showSalesFunnel, setShowSalesFunnel] = useState(false);
   const [selectedFunnelWorkId, setSelectedFunnelWorkId] = useState(null);
+  const [selectedCustomerKey, setSelectedCustomerKey] = useState(null);
 
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
@@ -560,8 +562,8 @@ function App() {
     setShowInquiryForm(false);
   }
 
-  function openInquiryForWork(workId) {
-    setInquiryForm({ ...inquiryForm, workId });
+  function openInquiryForWork(workId, customerName = '', customerPhone = '') {
+    setInquiryForm({ ...inquiryForm, workId, customerName, customerPhone });
     setShowInquiryForm(true);
   }
 
@@ -612,14 +614,14 @@ function App() {
     }
   }
 
-  function openOrderForWork(workId) {
+  function openOrderForWork(workId, customerName = '', customerPhone = '') {
     const selectedWork = works.find((w) => w.id === workId);
     setEditingOrderId(null);
     setOrderFormErrors([]);
     setOrderForm({
       workId,
-      customerName: '',
-      customerPhone: '',
+      customerName,
+      customerPhone,
       dealPrice: selectedWork ? String(selectedWork.price) : '',
       deposit: '',
       balanceStatus: '待支付',
@@ -628,6 +630,22 @@ function App() {
     });
     setShowOrderForm(true);
   }
+
+  function handleViewWorkFunnelFromCustomer(workId) {
+    setSelectedCustomerKey(null);
+    setShowSalesFunnel(true);
+    setSelectedFunnelWorkId(workId);
+  }
+
+  const allCustomers = useMemo(
+    () => buildCustomerProfile(inquiries, orders),
+    [inquiries, orders]
+  );
+
+  const selectedCustomer = useMemo(() => {
+    if (!selectedCustomerKey) return null;
+    return allCustomers.find((c) => c.key === selectedCustomerKey) || null;
+  }, [allCustomers, selectedCustomerKey]);
 
   function openEditOrder(orderId) {
     const order = orders.find((o) => o.id === orderId);
@@ -1921,7 +1939,22 @@ function App() {
         )}
       </section>
 
-      <CustomerList inquiries={inquiries} orders={orders} />
+      {selectedCustomer ? (
+        <CustomerDetail
+          customer={selectedCustomer}
+          works={works}
+          onBack={() => setSelectedCustomerKey(null)}
+          onViewWorkFunnel={handleViewWorkFunnelFromCustomer}
+          onOpenOrderForWork={openOrderForWork}
+          onOpenInquiryForWork={openInquiryForWork}
+        />
+      ) : (
+        <CustomerList
+          inquiries={inquiries}
+          orders={orders}
+          onSelectCustomer={(key) => setSelectedCustomerKey(key)}
+        />
+      )}
 
       {showStatementForm && (
         <section className="panel inquiry-form-panel">

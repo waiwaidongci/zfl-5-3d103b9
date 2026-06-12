@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { User, Phone, Banknote, Search, Filter, Eye, Receipt, MessageSquare } from 'lucide-react';
+import { User, Phone, Banknote, Search, Filter, Eye, Receipt, MessageSquare, ChevronRight } from 'lucide-react';
 import { CUSTOMER_STATUS, buildCustomerProfile, filterCustomers } from './customerUtils.js';
 
-function CustomerList({ inquiries, orders }) {
+function CustomerList({ inquiries, orders, onSelectCustomer }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('全部状态');
 
@@ -115,7 +115,11 @@ function CustomerList({ inquiries, orders }) {
       ) : (
         <div className="customer-list">
           {visibleCustomers.map((customer) => (
-            <div className="customer-card" key={customer.key}>
+            <div
+              className={`customer-card ${onSelectCustomer ? 'customer-card-clickable' : ''}`}
+              key={customer.key}
+              onClick={() => onSelectCustomer && onSelectCustomer(customer.key)}
+            >
               <div className="customer-head">
                 <div>
                   <strong className="customer-name">{customer.name}</strong>
@@ -123,13 +127,18 @@ function CustomerList({ inquiries, orders }) {
                     <Phone size={12} /> {customer.phone}
                   </span>
                 </div>
-                <span
-                  className={`status-select ${getStatusClass(
-                    customer.followStatus
-                  )}`}
-                >
-                  {customer.followStatus}
-                </span>
+                <div className="customer-head-right">
+                  <span
+                    className={`status-select ${getStatusClass(
+                      customer.followStatus
+                    )}`}
+                  >
+                    {customer.followStatus}
+                  </span>
+                  {onSelectCustomer && (
+                    <ChevronRight size={16} className="customer-card-arrow" />
+                  )}
+                </div>
               </div>
 
               <div className="customer-body">

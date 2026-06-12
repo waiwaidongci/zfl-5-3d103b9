@@ -111,6 +111,8 @@ function buildCustomerProfile(inquiries, orders) {
       key: profile.key || getCustomerKey(profile.name, profile.phone),
       name: profile.name,
       phone: profile.phone,
+      inquiries: profile.inquiries,
+      orders: profile.orders,
       totalDealAmount,
       lastInquiryWork: displayWork,
       followStatus,
