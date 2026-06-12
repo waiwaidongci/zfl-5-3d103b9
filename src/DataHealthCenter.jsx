@@ -37,7 +37,7 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
       if (selectedSeverity !== 'all' && issue.severity !== selectedSeverity) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
-        const text = `${issue.title} ${issue.description} ${issue.fixLabel}`.toLowerCase();
+        const text = `${issue.title} ${issue.description} ${issue.fixLabel || ''} ${issue.suggestion || ''} ${issue.label || ''}`.toLowerCase();
         if (!text.includes(q)) return false;
       }
       return true;
@@ -57,9 +57,10 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
   }, []);
 
   const handleSelectAll = useCallback(() => {
-    if (!filteredIssues.length) return;
-    const allIds = new Set(filteredIssues.map((i) => i.id));
-    const allSelected = filteredIssues.every((i) => selectedIssueIds.has(i.id));
+    const fixableIssues = filteredIssues.filter((i) => i.autoFixable);
+    if (!fixableIssues.length) return;
+    const allIds = new Set(fixableIssues.map((i) => i.id));
+    const allSelected = fixableIssues.every((i) => selectedIssueIds.has(i.id));
     if (allSelected) {
       setSelectedIssueIds(new Set());
     } else {
@@ -228,10 +229,10 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
               <label className="health-select-all">
                 <input
                   type="checkbox"
-                  checked={filteredIssues.length > 0 && filteredIssues.every((i) => selectedIssueIds.has(i.id))}
+                  checked={filteredIssues.filter((i) => i.autoFixable).length > 0 && filteredIssues.filter((i) => i.autoFixable).every((i) => selectedIssueIds.has(i.id))}
                   onChange={handleSelectAll}
                 />
-                <span>全选 ({selectedIssueIds.size}/{filteredIssues.length})</span>
+                <span>全选可修复项 ({selectedIssueIds.size}/{filteredIssues.filter((i) => i.autoFixable).length})</span>
               </label>
               {selectedIssueIds.size > 0 && (
                 <button className="health-fix-btn" onClick={handlePreviewFix}>
@@ -260,13 +261,19 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
                 className={`health-issue-card ${getSeverityClass(issue.severity)} ${selectedIssueIds.has(issue.id) ? 'selected' : ''}`}
               >
                 <div className="health-issue-head">
-                  <label className="health-issue-check">
-                    <input
-                      type="checkbox"
-                      checked={selectedIssueIds.has(issue.id)}
-                      onChange={() => handleSelectIssue(issue.id)}
-                    />
-                  </label>
+                  {issue.autoFixable ? (
+                    <label className="health-issue-check">
+                      <input
+                        type="checkbox"
+                        checked={selectedIssueIds.has(issue.id)}
+                        onChange={() => handleSelectIssue(issue.id)}
+                      />
+                    </label>
+                  ) : (
+                    <span className="health-issue-check health-issue-not-fixable">
+                      <Info size={14} />
+                    </span>
+                  )}
                   <span className={`health-severity-badge ${getSeverityClass(issue.severity)}`}>
                     {getSeverityIcon(issue.severity)}
                     {getSeverityLabel(issue.severity)}
@@ -284,7 +291,11 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
                   <div className="health-issue-detail">
                     <p className="health-issue-desc">{issue.description}</p>
                     <div className="health-issue-fix-info">
-                      <span className="health-fix-label"><Wrench size={12} /> 建议修复：{issue.fixLabel}</span>
+                      {issue.autoFixable ? (
+                        <span className="health-fix-label"><Wrench size={12} /> 可自动修复：{issue.fixLabel}</span>
+                      ) : (
+                        <span className="health-fix-label health-fix-manual"><AlertCircle size={12} /> 建议：{issue.suggestion}</span>
+                      )}
                     </div>
                     {issue.entitySnapshot && (
                       <div className="health-issue-snapshot">

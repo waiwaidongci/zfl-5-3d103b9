@@ -3893,6 +3893,8 @@ function App() {
           orders={orders}
           inquiries={inquiries}
           statements={statements}
+          loans={loans}
+          inventoryTasks={inventoryTasks}
           selectedWorkId={selectedFunnelWorkId}
           onBack={() => { setShowSalesFunnel(false); setSelectedFunnelWorkId(null); }}
           onViewWorkDetail={(workId) => setSelectedFunnelWorkId(selectedFunnelWorkId === workId ? null : workId)}

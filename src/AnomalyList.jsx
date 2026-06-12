@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   XCircle,
@@ -8,21 +8,22 @@ import {
   ChevronDown,
   ChevronUp,
   Eye,
-  RefreshCw,
   AlertCircle
 } from 'lucide-react';
 import {
   detectAllAnomalies,
-  ANOMALY_TYPES,
-  ANOMALY_SEVERITY,
-  ANOMALY_LABELS
-} from './funnelAnomalies.js';
+  RULE_ID,
+  SEVERITY,
+  RULE_LABELS
+} from './diagnosticRules.js';
 
 function AnomalyList({
   works,
   orders,
   inquiries,
   statements,
+  loans,
+  inventoryTasks,
   onViewWorkDetail
 }) {
   const [selectedSeverity, setSelectedSeverity] = useState('all');
@@ -31,8 +32,8 @@ function AnomalyList({
   const [expandedAnomalyId, setExpandedAnomalyId] = useState(null);
 
   const anomalyResult = useMemo(
-    () => detectAllAnomalies(works, orders, inquiries, statements),
-    [works, orders, inquiries, statements]
+    () => detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks),
+    [works, orders, inquiries, statements, loans, inventoryTasks]
   );
 
   const filteredAnomalies = useMemo(() => {
@@ -40,12 +41,12 @@ function AnomalyList({
       if (selectedSeverity !== 'all' && anomaly.severity !== selectedSeverity) {
         return false;
       }
-      if (selectedType !== 'all' && anomaly.type !== selectedType) {
+      if (selectedType !== 'all' && anomaly.ruleId !== selectedType) {
         return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
-        const text = `${anomaly.workTitle || ''} ${anomaly.workArtist || ''} ${anomaly.customerName || ''} ${anomaly.description} ${ANOMALY_LABELS[anomaly.type] || ''}`.toLowerCase();
+        const text = `${anomaly.workTitle || ''} ${anomaly.workArtist || ''} ${anomaly.customerName || ''} ${anomaly.description} ${anomaly.label || ''}`.toLowerCase();
         if (!text.includes(q)) {
           return false;
         }
@@ -56,11 +57,11 @@ function AnomalyList({
 
   const getSeverityIcon = (severity) => {
     switch (severity) {
-      case ANOMALY_SEVERITY.CRITICAL:
+      case SEVERITY.CRITICAL:
         return <XCircle size={14} />;
-      case ANOMALY_SEVERITY.WARNING:
+      case SEVERITY.WARNING:
         return <AlertTriangle size={14} />;
-      case ANOMALY_SEVERITY.INFO:
+      case SEVERITY.INFO:
         return <Info size={14} />;
       default:
         return <Info size={14} />;
@@ -69,11 +70,11 @@ function AnomalyList({
 
   const getSeverityClass = (severity) => {
     switch (severity) {
-      case ANOMALY_SEVERITY.CRITICAL:
+      case SEVERITY.CRITICAL:
         return 'anomaly-severity-critical';
-      case ANOMALY_SEVERITY.WARNING:
+      case SEVERITY.WARNING:
         return 'anomaly-severity-warning';
-      case ANOMALY_SEVERITY.INFO:
+      case SEVERITY.INFO:
         return 'anomaly-severity-info';
       default:
         return '';
@@ -82,11 +83,11 @@ function AnomalyList({
 
   const getSeverityLabel = (severity) => {
     switch (severity) {
-      case ANOMALY_SEVERITY.CRITICAL:
+      case SEVERITY.CRITICAL:
         return '严重';
-      case ANOMALY_SEVERITY.WARNING:
+      case SEVERITY.WARNING:
         return '警告';
-      case ANOMALY_SEVERITY.INFO:
+      case SEVERITY.INFO:
         return '提示';
       default:
         return severity;
@@ -97,7 +98,7 @@ function AnomalyList({
     return anomalyResult.summary.byType[type] || 0;
   };
 
-  const availableTypes = Object.values(ANOMALY_TYPES).filter(
+  const availableTypes = Object.values(RULE_ID).filter(
     (type) => getTypeCount(type) > 0
   );
 
@@ -166,9 +167,9 @@ function AnomalyList({
               onChange={(e) => setSelectedSeverity(e.target.value)}
             >
               <option value="all">全部严重级别</option>
-              <option value={ANOMALY_SEVERITY.CRITICAL}>严重</option>
-              <option value={ANOMALY_SEVERITY.WARNING}>警告</option>
-              <option value={ANOMALY_SEVERITY.INFO}>提示</option>
+              <option value={SEVERITY.CRITICAL}>严重</option>
+              <option value={SEVERITY.WARNING}>警告</option>
+              <option value={SEVERITY.INFO}>提示</option>
             </select>
           </label>
           <label>
@@ -180,7 +181,7 @@ function AnomalyList({
               <option value="all">全部类型</option>
               {availableTypes.map((type) => (
                 <option key={type} value={type}>
-                  {ANOMALY_LABELS[type] || type} ({getTypeCount(type)})
+                  {RULE_LABELS[type] || type} ({getTypeCount(type)})
                 </option>
               ))}
             </select>
@@ -224,7 +225,7 @@ function AnomalyList({
                   {getSeverityLabel(anomaly.severity)}
                 </span>
                 <span className="anomaly-type-badge">
-                  {ANOMALY_LABELS[anomaly.type] || anomaly.type}
+                  {anomaly.label || anomaly.ruleId}
                 </span>
                 <strong className="anomaly-issue-title">
                   {anomaly.workTitle
@@ -232,7 +233,7 @@ function AnomalyList({
                     : anomaly.workArtist
                     ? `「${anomaly.workArtist}」`
                     : ''}
-                  {ANOMALY_LABELS[anomaly.type] || anomaly.type}
+                  {anomaly.label || anomaly.ruleId}
                 </strong>
                 <button
                   className="ghost small anomaly-expand-btn"
@@ -281,7 +282,7 @@ function AnomalyList({
                         <Eye size={12} /> 查看作品漏斗
                       </button>
                     )}
-                    {anomaly.workId && anomaly.type === ANOMALY_TYPES.SOLD_WITHOUT_ORDER && (
+                    {anomaly.workId && anomaly.ruleId === RULE_ID.SOLD_WITHOUT_ORDER && (
                       <span className="anomaly-hint">
                         提示：可在作品详情中补录订单
                       </span>

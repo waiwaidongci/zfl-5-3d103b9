@@ -11,7 +11,7 @@ const STORAGE_KEYS = {
 function generateFixPreview(issues, data) {
   const patches = [];
 
-  issues.forEach((issue) => {
+  issues.filter((issue) => issue.autoFixable).forEach((issue) => {
     switch (issue.fixType) {
       case 'reset-work-sale': {
         const work = data.works.find((w) => w.id === issue.entityId);
@@ -43,6 +43,23 @@ function generateFixPreview(issues, data) {
             before: { sale: work.sale, settlement: work.settlement, saleDate: work.saleDate, settlementDate: work.settlementDate },
             after: { sale: '待售', settlement: '未结算', saleDate: null, settlementDate: null },
             description: `将作品「${work.title}」从「已售」恢复为「待售」，清空结算状态（补录订单需在作品列表中手动操作）`
+          });
+        }
+        break;
+      }
+      case 'reset-work-settlement-unsettled': {
+        const work = data.works.find((w) => w.id === issue.entityId);
+        if (work) {
+          patches.push({
+            issueId: issue.id,
+            fixType: issue.fixType,
+            fixLabel: issue.fixLabel,
+            entityType: 'works',
+            entityId: work.id,
+            entityLabel: `${work.artist} — ${work.title}`,
+            before: { settlement: work.settlement, settlementDate: work.settlementDate },
+            after: { settlement: '未结算', settlementDate: null },
+            description: `将作品「${work.title}」结算状态从「${work.settlement}」改为「未结算」`
           });
         }
         break;
@@ -331,6 +348,7 @@ function applyFixes(patches, data) {
   patches.forEach((patch) => {
     switch (patch.fixType) {
       case 'reset-work-sale':
+      case 'reset-work-settlement-unsettled':
       case 'revert-exhibit-to-storage':
       case 'set-work-sold':
       case 'set-work-settled':

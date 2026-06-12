@@ -20,7 +20,7 @@ import {
   FUNNEL_STAGE_LABELS,
   calculateFunnelStats
 } from './funnelStats.js';
-import { ANOMALY_SEVERITY, ANOMALY_LABELS } from './funnelAnomalies.js';
+import { SEVERITY, RULE_LABELS } from './diagnosticRules.js';
 import AnomalyList from './AnomalyList.jsx';
 import WorkFunnelDetail from './WorkFunnelDetail.jsx';
 
@@ -29,6 +29,8 @@ function SalesFunnel({
   orders,
   inquiries,
   statements,
+  loans,
+  inventoryTasks,
   selectedWorkId: propSelectedWorkId,
   onBack,
   onViewWorkDetail,
@@ -112,6 +114,8 @@ function SalesFunnel({
         orders={orders}
         inquiries={inquiries}
         statements={statements}
+        loans={loans}
+        inventoryTasks={inventoryTasks}
         onBack={handleBackFromDetail}
         onOpenOrderForWork={onOpenOrderForWork}
       />
@@ -358,6 +362,8 @@ function SalesFunnel({
             orders={orders}
             inquiries={inquiries}
             statements={statements}
+            loans={loans}
+            inventoryTasks={inventoryTasks}
             onViewWorkDetail={(workId) => {
               setShowAnomalies(false);
               handleSelectWork(workId);

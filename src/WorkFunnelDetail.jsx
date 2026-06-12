@@ -23,7 +23,7 @@ import {
   FUNNEL_STAGE_ORDER,
   getWorkFunnelDetail
 } from './funnelStats.js';
-import { detectAllAnomalies, ANOMALY_SEVERITY, ANOMALY_LABELS } from './funnelAnomalies.js';
+import { detectAllAnomalies, SEVERITY, RULE_LABELS } from './diagnosticRules.js';
 
 function WorkFunnelDetail({
   workId,
@@ -31,6 +31,8 @@ function WorkFunnelDetail({
   orders,
   inquiries,
   statements,
+  loans,
+  inventoryTasks,
   onBack,
   onOpenOrderForWork
 }) {
@@ -41,11 +43,11 @@ function WorkFunnelDetail({
 
   const workAnomalies = useMemo(() => {
     if (!funnelDetail) return [];
-    const result = detectAllAnomalies(works, orders, inquiries, statements);
+    const result = detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks);
     return result.anomalies.filter(
       (a) => a.workId === workId || a.orderId === funnelDetail.activeOrder?.id
     );
-  }, [funnelDetail, works, orders, inquiries, statements, workId]);
+  }, [funnelDetail, works, orders, inquiries, statements, loans, inventoryTasks, workId]);
 
   if (!funnelDetail) {
     return (
@@ -69,11 +71,11 @@ function WorkFunnelDetail({
 
   const getSeverityIcon = (severity) => {
     switch (severity) {
-      case ANOMALY_SEVERITY.CRITICAL:
+      case SEVERITY.CRITICAL:
         return <XCircle size={14} />;
-      case ANOMALY_SEVERITY.WARNING:
+      case SEVERITY.WARNING:
         return <AlertCircle size={14} />;
-      case ANOMALY_SEVERITY.INFO:
+      case SEVERITY.INFO:
         return <Info size={14} />;
       default:
         return <Info size={14} />;
@@ -82,11 +84,11 @@ function WorkFunnelDetail({
 
   const getSeverityClass = (severity) => {
     switch (severity) {
-      case ANOMALY_SEVERITY.CRITICAL:
+      case SEVERITY.CRITICAL:
         return 'funnel-anomaly-critical';
-      case ANOMALY_SEVERITY.WARNING:
+      case SEVERITY.WARNING:
         return 'funnel-anomaly-warning';
-      case ANOMALY_SEVERITY.INFO:
+      case SEVERITY.INFO:
         return 'funnel-anomaly-info';
       default:
         return '';
@@ -138,7 +140,7 @@ function WorkFunnelDetail({
                 <div key={anomaly.id} className={`work-anomaly-item ${getSeverityClass(anomaly.severity)}`}>
                   {getSeverityIcon(anomaly.severity)}
                   <div>
-                    <strong>{ANOMALY_LABELS[anomaly.type] || anomaly.type}</strong>
+                    <strong>{anomaly.label || anomaly.ruleId}</strong>
                     <p>{anomaly.description}</p>
                     <span className="work-anomaly-suggestion">建议：{anomaly.suggestion}</span>
                   </div>
