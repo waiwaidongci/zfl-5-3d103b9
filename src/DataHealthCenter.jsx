@@ -5,7 +5,7 @@ import {
   AlertCircle, Info, Wrench
 } from 'lucide-react';
 import { runAllDiagnostics, SEVERITY, CATEGORY, CATEGORY_LABELS } from './diagnosticRules.js';
-import { generateFixPreview, applyFixes, persistFixedData } from './fixExecutor.js';
+import { generateFixPreview, applyFixes } from './fixExecutor.js';
 
 function DataHealthCenter({ artists, works, orders, inquiries, loans, statements, inventoryTasks, onFixApplied }) {
   const [diagnosisResult, setDiagnosisResult] = useState(null);
@@ -78,7 +78,6 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
   const handleConfirmFix = useCallback(() => {
     if (!fixPreview) return;
     const updatedData = applyFixes(fixPreview.patches, data);
-    persistFixedData(updatedData, fixPreview.patches);
     setFixConfirmStep('done');
     if (onFixApplied) {
       onFixApplied(updatedData, fixPreview.patches);

@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, ArrowRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, ListChecks, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Tag, TrendingUp, Upload, User, UserPlus, XCircle, ClipboardList, Eye, AlertTriangle, Package, Shield } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ArrowRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, ListChecks, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Tag, TrendingUp, Upload, User, UserPlus, XCircle, ClipboardList, Eye, AlertTriangle, Package, Shield, Undo2, Redo2, X } from 'lucide-react';
 import './styles.css';
 import CustomerList from './CustomerList.jsx';
 import CustomerDetail from './CustomerDetail.jsx';
 import DataHealthCenter from './DataHealthCenter.jsx';
 import SalesFunnel from './SalesFunnel.jsx';
 import { buildCustomerProfile } from './customerUtils.js';
+import { historyManager, OPERATION_TYPES, OPERATION_LABELS, STORAGE_KEYS } from './historyManager.js';
 
 const iso = (offset = 0) => {
   const date = new Date();
@@ -460,6 +461,77 @@ function App() {
   const [selectedFunnelWorkId, setSelectedFunnelWorkId] = useState(null);
   const [selectedCustomerKey, setSelectedCustomerKey] = useState(null);
 
+  const [historyState, setHistoryState] = useState(() => historyManager.getState());
+  const [toasts, setToasts] = useState([]);
+  const toastTimers = useRef({});
+
+  useEffect(() => {
+    const unsub = historyManager.subscribe(setHistoryState);
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const unsub = historyManager.subscribeToast((toast) => {
+      const toastId = toast.id || `toast-${Date.now()}`;
+      setToasts((prev) => [...prev.slice(-4), { ...toast, toastId }]);
+      if (toastTimers.current[toastId]) {
+        clearTimeout(toastTimers.current[toastId]);
+      }
+      toastTimers.current[toastId] = setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.toastId !== toastId));
+        delete toastTimers.current[toastId];
+      }, 4000);
+    });
+    return unsub;
+  }, []);
+
+  function dismissToast(toastId) {
+    setToasts((prev) => prev.filter((t) => t.toastId !== toastId));
+    if (toastTimers.current[toastId]) {
+      clearTimeout(toastTimers.current[toastId]);
+      delete toastTimers.current[toastId];
+    }
+  }
+
+  function syncStateFromRestoredData(restoredData) {
+    setArtists(restoredData.artists);
+    setWorks(restoredData.works);
+    setInquiries(restoredData.inquiries);
+    setOrders(restoredData.orders);
+    setStatements(restoredData.statements);
+    setLoans(restoredData.loans);
+    setInventoryTasks(restoredData.inventoryTasks);
+  }
+
+  function handleUndo() {
+    const result = historyManager.undo();
+    if (result) {
+      syncStateFromRestoredData(result.restoredData);
+    }
+  }
+
+  function handleRedo() {
+    const result = historyManager.redo();
+    if (result) {
+      syncStateFromRestoredData(result.restoredData);
+    }
+  }
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const validWorkIds = useMemo(() => new Set(works.map((w) => w.id)), [works]);
   const inquiryFilter = (inquiryFilterRaw === '全部作品' || validWorkIds.has(inquiryFilterRaw))
     ? inquiryFilterRaw
@@ -677,7 +749,15 @@ function App() {
   function addArtist(event) {
     event.preventDefault();
     if (!artistForm.name.trim()) return;
-    setArtists([{ id: crypto.randomUUID(), ...artistForm }, ...artists]);
+    const newArtist = { id: crypto.randomUUID(), ...artistForm };
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.ADD_ARTIST,
+      `添加艺术家「${artistForm.name}」`,
+      [{ entityType: 'artists', entityId: newArtist.id, entityLabel: artistForm.name }],
+      () => {
+        setArtists([newArtist, ...artists]);
+      }
+    );
     setArtistForm({ name: '', phone: '', style: '', note: '' });
     setWorkForm({ ...workForm, artist: artistForm.name });
   }
@@ -686,7 +766,7 @@ function App() {
     event.preventDefault();
     if (!workForm.title.trim() || !workForm.artist) return;
     const safeSale = workForm.sale === '已售' ? '待售' : workForm.sale;
-    setWorks([{
+    const newWork = {
       id: crypto.randomUUID(),
       ...workForm,
       sale: safeSale,
@@ -694,7 +774,15 @@ function App() {
       saleDate: safeSale === '已售' ? iso(0) : null,
       settlement: '未结算',
       settlementDate: null
-    }, ...works]);
+    };
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.ADD_WORK,
+      `添加作品「${workForm.artist} — ${workForm.title}」`,
+      [{ entityType: 'works', entityId: newWork.id, entityLabel: `${workForm.artist} — ${workForm.title}` }],
+      () => {
+        setWorks([newWork, ...works]);
+      }
+    );
     setWorkForm({ ...workForm, title: '', price: '', inDate: iso(0), exhibit: '展出中', sale: '待售', settlement: '未结算' });
   }
 
@@ -702,11 +790,24 @@ function App() {
     setWorks(works.map((work) => work.id === id ? { ...work, ...patch } : work));
   }
 
+  function settleWork(workId) {
+    const work = works.find((w) => w.id === workId);
+    if (!work) return;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.SETTLE_WORK,
+      `结算确认「${work.artist} — ${work.title}」`,
+      [{ entityType: 'works', entityId: workId, entityLabel: `${work.artist} — ${work.title}` }],
+      () => {
+        setWorks(works.map((w) => w.id === workId ? { ...w, settlement: '已结算', settlementDate: iso(0) } : w));
+      }
+    );
+  }
+
   function addInquiry(event) {
     event.preventDefault();
     if (!inquiryForm.workId || !inquiryForm.customerName.trim() || !inquiryForm.customerPhone.trim()) return;
     const selectedWork = works.find((w) => w.id === inquiryForm.workId);
-    setInquiries([{
+    const newInquiry = {
       id: crypto.randomUUID(),
       workId: inquiryForm.workId,
       workTitle: selectedWork ? selectedWork.title : '',
@@ -716,7 +817,15 @@ function App() {
       remark: inquiryForm.remark.trim(),
       status: '待跟进',
       createdAt: new Date().toISOString()
-    }, ...inquiries]);
+    };
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.ADD_INQUIRY,
+      `添加询价「${newInquiry.workTitle} · ${newInquiry.customerName}」`,
+      [{ entityType: 'inquiries', entityId: newInquiry.id, entityLabel: `${newInquiry.workTitle} · ${newInquiry.customerName}` }],
+      () => {
+        setInquiries([newInquiry, ...inquiries]);
+      }
+    );
     setInquiryForm({ workId: '', customerName: '', customerPhone: '', intendedPrice: '', remark: '' });
     setShowInquiryForm(false);
   }
@@ -727,14 +836,23 @@ function App() {
   }
 
   function updateInquiryStatus(id, nextStatus) {
-    setInquiries(inquiries.map((inq) => inq.id === id ? { ...inq, status: nextStatus } : inq));
+    const inq = inquiries.find((i) => i.id === id);
+    const label = inq ? `${inq.workTitle} · ${inq.customerName}` : id;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.UPDATE_INQUIRY_STATUS,
+      `询价「${label}」状态改为「${nextStatus}」`,
+      [{ entityType: 'inquiries', entityId: id, entityLabel: label }],
+      () => {
+        setInquiries(inquiries.map((inq) => inq.id === id ? { ...inq, status: nextStatus } : inq));
+      }
+    );
   }
 
   function addLoan(event) {
     event.preventDefault();
     if (!loanForm.workId || !loanForm.borrower.trim()) return;
     const selectedWork = works.find((w) => w.id === loanForm.workId);
-    setLoans([{
+    const newLoan = {
       id: crypto.randomUUID(),
       workId: loanForm.workId,
       workTitle: selectedWork ? selectedWork.title : '',
@@ -746,10 +864,22 @@ function App() {
       notes: loanForm.notes.trim(),
       returnedAt: null,
       createdAt: new Date().toISOString()
-    }, ...loans]);
-    if (selectedWork && selectedWork.exhibit !== '借展') {
-      updateWork(loanForm.workId, { exhibit: '借展' });
-    }
+    };
+    const needsExhibitUpdate = selectedWork && selectedWork.exhibit !== '借展';
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.ADD_LOAN,
+      `添加借展「${newLoan.workTitle} → ${newLoan.borrower}」`,
+      [
+        { entityType: 'loans', entityId: newLoan.id, entityLabel: `${newLoan.workTitle} · ${newLoan.borrower}` },
+        ...(needsExhibitUpdate ? [{ entityType: 'works', entityId: loanForm.workId, entityLabel: `${selectedWork.artist} — ${selectedWork.title}` }] : [])
+      ],
+      () => {
+        setLoans([newLoan, ...loans]);
+        if (needsExhibitUpdate) {
+          setWorks(works.map((work) => work.id === loanForm.workId ? { ...work, exhibit: '借展' } : work));
+        }
+      }
+    );
     setLoanForm({ workId: '', borrower: '', loanDate: iso(0), expectedReturnDate: iso(7), contactPerson: '', notes: '' });
     setShowLoanForm(false);
   }
@@ -760,17 +890,25 @@ function App() {
   }
 
   function markLoanReturned(id) {
-    setLoans(loans.map((loan) => loan.id === id ? { ...loan, returnedAt: new Date().toISOString() } : loan));
     const loan = loans.find((l) => l.id === id);
-    if (loan) {
-      const otherActiveLoans = loans.filter((l) => l.workId === loan.workId && l.id !== id && !l.returnedAt);
-      if (otherActiveLoans.length === 0) {
-        const work = works.find((w) => w.id === loan.workId);
-        if (work && work.exhibit === '借展') {
-          updateWork(loan.workId, { exhibit: '库房' });
+    if (!loan) return;
+    const otherActiveLoans = loans.filter((l) => l.workId === loan.workId && l.id !== id && !l.returnedAt);
+    const work = works.find((w) => w.id === loan.workId);
+    const needsExhibitReset = otherActiveLoans.length === 0 && work && work.exhibit === '借展';
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.MARK_LOAN_RETURNED,
+      `归还借展「${loan.workTitle} · ${loan.borrower}」`,
+      [
+        { entityType: 'loans', entityId: id, entityLabel: `${loan.workTitle} · ${loan.borrower}` },
+        ...(needsExhibitReset ? [{ entityType: 'works', entityId: loan.workId, entityLabel: `${work.artist} — ${work.title}` }] : [])
+      ],
+      () => {
+        setLoans(loans.map((l) => l.id === id ? { ...l, returnedAt: new Date().toISOString() } : l));
+        if (needsExhibitReset) {
+          setWorks(works.map((w) => w.id === loan.workId ? { ...w, exhibit: '库房' } : w));
         }
       }
-    }
+    );
   }
 
   function openOrderForWork(workId, customerName = '', customerPhone = '') {
@@ -863,21 +1001,31 @@ function App() {
     const deposit = Number(orderForm.deposit || 0);
 
     if (editingOrderId) {
-      setOrders(orders.map((o) => o.id === editingOrderId ? {
-        ...o,
-        customerName: orderForm.customerName.trim(),
-        customerPhone: orderForm.customerPhone.trim(),
-        dealPrice,
-        deposit,
-        balanceStatus: orderForm.balanceStatus,
-        dealDate: orderForm.dealDate,
-        note: orderForm.note.trim(),
-        updatedAt: new Date().toISOString()
-      } : o));
-
-      if (orderForm.dealDate) {
-        updateWork(orderForm.workId, { saleDate: orderForm.dealDate });
-      }
+      const existingOrder = orders.find((o) => o.id === editingOrderId);
+      historyManager.recordAtomicOperation(
+        OPERATION_TYPES.EDIT_ORDER,
+        `编辑订单「${existingOrder ? existingOrder.workTitle : ''} · ${orderForm.customerName}」`,
+        [
+          { entityType: 'orders', entityId: editingOrderId, entityLabel: existingOrder ? `${existingOrder.workTitle} · ${existingOrder.customerName}` : editingOrderId },
+          { entityType: 'works', entityId: orderForm.workId, entityLabel: selectedWork ? `${selectedWork.artist} — ${selectedWork.title}` : orderForm.workId }
+        ],
+        () => {
+          setOrders(orders.map((o) => o.id === editingOrderId ? {
+            ...o,
+            customerName: orderForm.customerName.trim(),
+            customerPhone: orderForm.customerPhone.trim(),
+            dealPrice,
+            deposit,
+            balanceStatus: orderForm.balanceStatus,
+            dealDate: orderForm.dealDate,
+            note: orderForm.note.trim(),
+            updatedAt: new Date().toISOString()
+          } : o));
+          if (orderForm.dealDate) {
+            setWorks(works.map((w) => w.id === orderForm.workId ? { ...w, saleDate: orderForm.dealDate } : w));
+          }
+        }
+      );
     } else {
       const newOrder = {
         id: crypto.randomUUID(),
@@ -895,12 +1043,20 @@ function App() {
         cancelledAt: null
       };
 
-      setOrders([newOrder, ...orders]);
-      updateWork(orderForm.workId, {
-        sale: '已售',
-        settlement: '待结算',
-        saleDate: orderForm.dealDate
-      });
+      historyManager.recordAtomicOperation(
+        OPERATION_TYPES.ADD_ORDER,
+        `登记订单「${newOrder.workTitle} · ${newOrder.customerName}」`,
+        [
+          { entityType: 'orders', entityId: newOrder.id, entityLabel: `${newOrder.workTitle} · ${newOrder.customerName}` },
+          { entityType: 'works', entityId: orderForm.workId, entityLabel: selectedWork ? `${selectedWork.artist} — ${selectedWork.title}` : orderForm.workId }
+        ],
+        () => {
+          setOrders([newOrder, ...orders]);
+          setWorks(works.map((w) => w.id === orderForm.workId ? {
+            ...w, sale: '已售', settlement: '待结算', saleDate: orderForm.dealDate
+          } : w));
+        }
+      );
     }
 
     setOrderForm({ workId: '', customerName: '', customerPhone: '', dealPrice: '', deposit: '', balanceStatus: '待支付', dealDate: iso(0), note: '' });
@@ -913,21 +1069,39 @@ function App() {
     const order = orders.find((o) => o.id === orderId);
     if (!order) return;
 
-    setOrders(orders.map((o) => o.id === orderId ? { ...o, cancelledAt: new Date().toISOString() } : o));
-
     const otherActiveOrders = orders.filter((o) => o.workId === order.workId && o.id !== orderId && !o.cancelledAt);
-    if (otherActiveOrders.length === 0) {
-      updateWork(order.workId, {
-        sale: '待售',
-        settlement: '未结算',
-        saleDate: null,
-        settlementDate: null
-      });
-    }
+    const needsWorkReset = otherActiveOrders.length === 0;
+    const work = works.find((w) => w.id === order.workId);
+
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.CANCEL_ORDER,
+      `撤销订单「${order.workTitle} · ${order.customerName}」`,
+      [
+        { entityType: 'orders', entityId: orderId, entityLabel: `${order.workTitle} · ${order.customerName}` },
+        ...(needsWorkReset && work ? [{ entityType: 'works', entityId: order.workId, entityLabel: `${work.artist} — ${work.title}` }] : [])
+      ],
+      () => {
+        setOrders(orders.map((o) => o.id === orderId ? { ...o, cancelledAt: new Date().toISOString() } : o));
+        if (needsWorkReset) {
+          setWorks(works.map((w) => w.id === order.workId ? {
+            ...w, sale: '待售', settlement: '未结算', saleDate: null, settlementDate: null
+          } : w));
+        }
+      }
+    );
   }
 
   function updateOrderBalanceStatus(orderId, nextStatus) {
-    setOrders(orders.map((o) => o.id === orderId ? { ...o, balanceStatus: nextStatus } : o));
+    const order = orders.find((o) => o.id === orderId);
+    const label = order ? `${order.workTitle} · ${order.customerName}` : orderId;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.UPDATE_ORDER_BALANCE,
+      `订单「${label}」尾款状态改为「${nextStatus}」`,
+      [{ entityType: 'orders', entityId: orderId, entityLabel: label }],
+      () => {
+        setOrders(orders.map((o) => o.id === orderId ? { ...o, balanceStatus: nextStatus } : o));
+      }
+    );
   }
 
   function previewStatement() {
@@ -1009,54 +1183,79 @@ function App() {
       createdAt: new Date().toISOString()
     };
 
-    setStatements([newStatement, ...statements]);
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.CREATE_STATEMENT,
+      `创建对账单「${newStatement.artist} ${newStatement.startDate}~${newStatement.endDate}」`,
+      [{ entityType: 'statements', entityId: newStatement.id, entityLabel: `${newStatement.artist} · ${newStatement.startDate}~${newStatement.endDate}` }],
+      () => {
+        setStatements([newStatement, ...statements]);
+      }
+    );
     setStatementPreview(null);
     setStatementForm({ artist: '', startDate: '', endDate: '' });
     setShowStatementForm(false);
   }
 
   function confirmStatement(statementId) {
-    setStatements(statements.map((s) =>
-      s.id === statementId
-        ? { ...s, confirmed: true, confirmedAt: new Date().toISOString(), paymentStatus: s.paymentStatus || '待付款' }
-        : s
-    ));
+    const stmt = statements.find((s) => s.id === statementId);
+    const label = stmt ? `${stmt.artist} · ${stmt.startDate}~${stmt.endDate}` : statementId;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.CONFIRM_STATEMENT,
+      `确认对账单「${label}」`,
+      [{ entityType: 'statements', entityId: statementId, entityLabel: label }],
+      () => {
+        setStatements(statements.map((s) =>
+          s.id === statementId
+            ? { ...s, confirmed: true, confirmedAt: new Date().toISOString(), paymentStatus: s.paymentStatus || '待付款' }
+            : s
+        ));
+      }
+    );
   }
 
   function updateStatementPayment(statementId, paymentStatus, paidAmount, paymentNote, paymentDate) {
-    setStatements(statements.map((s) => {
-      if (s.id !== statementId) return s;
-      const newPaidAmount = paidAmount !== undefined ? Number(paidAmount || 0) : Number(s.paidAmount || 0);
-      let finalStatus = paymentStatus || s.paymentStatus || '待付款';
-      if (!paymentStatus && paidAmount !== undefined) {
-        if (newPaidAmount <= 0) {
-          finalStatus = '待付款';
-        } else if (newPaidAmount >= Number(s.totalPayable || 0)) {
-          finalStatus = '已付款';
-        } else {
-          finalStatus = '部分付款';
-        }
-      }
+    const stmt = statements.find((s) => s.id === statementId);
+    const label = stmt ? `${stmt.artist} · ${stmt.startDate}~${stmt.endDate}` : statementId;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.UPDATE_STATEMENT_PAYMENT,
+      `更新付款状态「${label}」`,
+      [{ entityType: 'statements', entityId: statementId, entityLabel: label }],
+      () => {
+        setStatements(statements.map((s) => {
+          if (s.id !== statementId) return s;
+          const newPaidAmount = paidAmount !== undefined ? Number(paidAmount || 0) : Number(s.paidAmount || 0);
+          let finalStatus = paymentStatus || s.paymentStatus || '待付款';
+          if (!paymentStatus && paidAmount !== undefined) {
+            if (newPaidAmount <= 0) {
+              finalStatus = '待付款';
+            } else if (newPaidAmount >= Number(s.totalPayable || 0)) {
+              finalStatus = '已付款';
+            } else {
+              finalStatus = '部分付款';
+            }
+          }
 
-      let finalPaymentDate = null;
-      if (finalStatus === '待付款') {
-        finalPaymentDate = null;
-      } else if (paymentDate !== undefined && paymentDate !== null) {
-        finalPaymentDate = paymentDate || iso(0);
-      } else if (s.paymentDate) {
-        finalPaymentDate = s.paymentDate;
-      } else {
-        finalPaymentDate = iso(0);
-      }
+          let finalPaymentDate = null;
+          if (finalStatus === '待付款') {
+            finalPaymentDate = null;
+          } else if (paymentDate !== undefined && paymentDate !== null) {
+            finalPaymentDate = paymentDate || iso(0);
+          } else if (s.paymentDate) {
+            finalPaymentDate = s.paymentDate;
+          } else {
+            finalPaymentDate = iso(0);
+          }
 
-      return {
-        ...s,
-        paymentStatus: finalStatus,
-        paidAmount: newPaidAmount,
-        paymentNote: paymentNote !== undefined ? paymentNote : (s.paymentNote || ''),
-        paymentDate: finalPaymentDate
-      };
-    }));
+          return {
+            ...s,
+            paymentStatus: finalStatus,
+            paidAmount: newPaidAmount,
+            paymentNote: paymentNote !== undefined ? paymentNote : (s.paymentNote || ''),
+            paymentDate: finalPaymentDate
+          };
+        }));
+      }
+    );
   }
 
   function openPaymentEditor(statementId) {
@@ -1121,52 +1320,70 @@ function App() {
       createdAt: new Date().toISOString(),
       completedAt: null
     };
-    setInventoryTasks([newTask, ...inventoryTasks]);
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.INVENTORY_CREATE_TASK,
+      `创建盘点任务「${newTask.name}」`,
+      [{ entityType: 'inventoryTasks', entityId: newTask.id, entityLabel: newTask.name }],
+      () => {
+        setInventoryTasks([newTask, ...inventoryTasks]);
+      }
+    );
     setInventoryForm({ name: '', note: '' });
     setShowInventoryForm(false);
   }
 
   function updateInventoryItem(taskId, itemId, patch) {
-    setInventoryTasks(inventoryTasks.map((task) => {
-      if (task.id !== taskId) return task;
-      const updatedItems = task.items.map((item) => {
-        if (item.id !== itemId) return item;
-        const updated = {
-          ...item,
-          ...patch,
-          checkedAt: patch.status && patch.status !== '未核对'
-            ? (patch.checkedAt || new Date().toISOString())
-            : item.checkedAt
-        };
-        if (patch.status === '异常' || patch.status === '缺失') {
-          if (!updated.discrepancy || updated.discrepancy.resolution === '未处理') {
-            const currentWork = works.find((w) => w.id === item.workId);
-            const discrepancy = computeDiscrepancy(item, currentWork);
-            updated.discrepancy = {
-              ...discrepancy,
-              resolution: '未处理',
-              resolutionNote: '',
-              resolvedAt: null
+    const task = inventoryTasks.find((t) => t.id === taskId);
+    const item = task ? task.items.find((i) => i.id === itemId) : null;
+    const itemLabel = item ? `${item.workSnapshot?.title || itemId} (${task?.name || taskId})` : itemId;
+    const patchDesc = patch.status ? `状态→${patch.status}` : '修改';
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.INVENTORY_ITEM_UPDATE,
+      `盘点条目「${itemLabel}」${patchDesc}`,
+      [{ entityType: 'inventoryTasks', entityId: taskId, entityLabel: itemLabel }],
+      () => {
+        setInventoryTasks(inventoryTasks.map((task) => {
+          if (task.id !== taskId) return task;
+          const updatedItems = task.items.map((item) => {
+            if (item.id !== itemId) return item;
+            const updated = {
+              ...item,
+              ...patch,
+              checkedAt: patch.status && patch.status !== '未核对'
+                ? (patch.checkedAt || new Date().toISOString())
+                : item.checkedAt
             };
-          }
-        }
-        return updated;
-      });
-      const checkedCount = updatedItems.filter((i) => i.status === '已核对').length;
-      const exceptionCount = updatedItems.filter((i) => i.status === '异常').length;
-      const missingCount = updatedItems.filter((i) => i.status === '缺失').length;
-      const unresolvedDiscrepancyCount = updatedItems.filter(
-        (i) => (i.status === '异常' || i.status === '缺失') && (!i.discrepancy || i.discrepancy.resolution === '未处理')
-      ).length;
-      return {
-        ...task,
-        items: updatedItems,
-        checkedCount,
-        exceptionCount,
-        missingCount,
-        unresolvedDiscrepancyCount
-      };
-    }));
+            if (patch.status === '异常' || patch.status === '缺失') {
+              if (!updated.discrepancy || updated.discrepancy.resolution === '未处理') {
+                const currentWork = works.find((w) => w.id === item.workId);
+                const discrepancy = computeDiscrepancy(item, currentWork);
+                updated.discrepancy = {
+                  ...discrepancy,
+                  resolution: '未处理',
+                  resolutionNote: '',
+                  resolvedAt: null
+                };
+              }
+            }
+            return updated;
+          });
+          const checkedCount = updatedItems.filter((i) => i.status === '已核对').length;
+          const exceptionCount = updatedItems.filter((i) => i.status === '异常').length;
+          const missingCount = updatedItems.filter((i) => i.status === '缺失').length;
+          const unresolvedDiscrepancyCount = updatedItems.filter(
+            (i) => (i.status === '异常' || i.status === '缺失') && (!i.discrepancy || i.discrepancy.resolution === '未处理')
+          ).length;
+          return {
+            ...task,
+            items: updatedItems,
+            checkedCount,
+            exceptionCount,
+            missingCount,
+            unresolvedDiscrepancyCount
+          };
+        }));
+      }
+    );
   }
 
   function computeDiscrepancy(item, currentWork) {
@@ -1193,38 +1410,58 @@ function App() {
   }
 
   function resolveInventoryDiscrepancy(taskId, itemId, resolution, resolutionNote) {
-    setInventoryTasks(inventoryTasks.map((task) => {
-      if (task.id !== taskId) return task;
-      const updatedItems = task.items.map((item) => {
-        if (item.id !== itemId) return item;
-        const currentWork = works.find((w) => w.id === item.workId);
-        const discrepancy = computeDiscrepancy(item, currentWork);
-        if (resolution === '已恢复' && currentWork) {
-          const patch = {};
-          discrepancy.diffFields.forEach((d) => {
-            if (d.field !== 'existence') {
-              patch[d.field] = item.workSnapshot[d.field];
-            }
-          });
-          if (Object.keys(patch).length > 0) {
-            updateWork(item.workId, patch);
-          }
+    const task = inventoryTasks.find((t) => t.id === taskId);
+    const item = task ? task.items.find((i) => i.id === itemId) : null;
+    const itemLabel = item ? `${item.workSnapshot?.title || itemId} (${task?.name || taskId})` : itemId;
+
+    const currentWork = item ? works.find((w) => w.id === item.workId) : null;
+    let workPatch = null;
+    if (resolution === '已恢复' && currentWork && item) {
+      const discrepancy = computeDiscrepancy(item, currentWork);
+      const patch = {};
+      discrepancy.diffFields.forEach((d) => {
+        if (d.field !== 'existence') {
+          patch[d.field] = item.workSnapshot[d.field];
         }
-        return {
-          ...item,
-          discrepancy: {
-            ...discrepancy,
-            resolution,
-            resolutionNote: resolutionNote || '',
-            resolvedAt: new Date().toISOString()
-          }
-        };
       });
-      const unresolvedDiscrepancyCount = updatedItems.filter(
-        (i) => (i.status === '异常' || i.status === '缺失') && (!i.discrepancy || i.discrepancy.resolution === '未处理')
-      ).length;
-      return { ...task, items: updatedItems, unresolvedDiscrepancyCount };
-    }));
+      if (Object.keys(patch).length > 0) {
+        workPatch = patch;
+      }
+    }
+
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.INVENTORY_DISCREPANCY_RESOLVE,
+      `盘点差异「${itemLabel}」→${resolution}`,
+      [
+        { entityType: 'inventoryTasks', entityId: taskId, entityLabel: itemLabel },
+        ...(workPatch ? [{ entityType: 'works', entityId: item.workId, entityLabel: `${item.workSnapshot?.artist} — ${item.workSnapshot?.title}` }] : [])
+      ],
+      () => {
+        if (workPatch) {
+          setWorks(works.map((w) => w.id === item.workId ? { ...w, ...workPatch } : w));
+        }
+        setInventoryTasks(inventoryTasks.map((task) => {
+          if (task.id !== taskId) return task;
+          const updatedItems = task.items.map((item) => {
+            if (item.id !== itemId) return item;
+            const discrepancy = computeDiscrepancy(item, works.find((w) => w.id === item.workId));
+            return {
+              ...item,
+              discrepancy: {
+                ...discrepancy,
+                resolution,
+                resolutionNote: resolutionNote || '',
+                resolvedAt: new Date().toISOString()
+              }
+            };
+          });
+          const unresolvedDiscrepancyCount = updatedItems.filter(
+            (i) => (i.status === '异常' || i.status === '缺失') && (!i.discrepancy || i.discrepancy.resolution === '未处理')
+          ).length;
+          return { ...task, items: updatedItems, unresolvedDiscrepancyCount };
+        }));
+      }
+    );
   }
 
   function detectDiscrepanciesForTask(taskId) {
@@ -1262,28 +1499,51 @@ function App() {
       setInventoryCompleteWarning({ taskId, unresolvedItems });
       return;
     }
-    setInventoryTasks(inventoryTasks.map((t) =>
-      t.id === taskId
-        ? { ...t, status: '已完成', completedAt: new Date().toISOString(), unresolvedDiscrepancyCount: 0 }
-        : t
-    ));
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.INVENTORY_TASK_COMPLETE,
+      `完成盘点任务「${task.name}」`,
+      [{ entityType: 'inventoryTasks', entityId: taskId, entityLabel: task.name }],
+      () => {
+        setInventoryTasks(inventoryTasks.map((t) =>
+          t.id === taskId
+            ? { ...t, status: '已完成', completedAt: new Date().toISOString(), unresolvedDiscrepancyCount: 0 }
+            : t
+        ));
+      }
+    );
   }
 
   function forceCompleteInventoryTask(taskId) {
-    setInventoryTasks(inventoryTasks.map((t) =>
-      t.id === taskId
-        ? { ...t, status: '已完成', completedAt: new Date().toISOString() }
-        : t
-    ));
+    const task = inventoryTasks.find((t) => t.id === taskId);
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.INVENTORY_FORCE_COMPLETE,
+      `强制完成盘点「${task ? task.name : taskId}」`,
+      [{ entityType: 'inventoryTasks', entityId: taskId, entityLabel: task ? task.name : taskId }],
+      () => {
+        setInventoryTasks(inventoryTasks.map((t) =>
+          t.id === taskId
+            ? { ...t, status: '已完成', completedAt: new Date().toISOString() }
+            : t
+        ));
+      }
+    );
     setInventoryCompleteWarning(null);
   }
 
   function reopenInventoryTask(taskId) {
-    setInventoryTasks(inventoryTasks.map((task) =>
-      task.id === taskId
-        ? { ...task, status: '进行中', completedAt: null }
-        : task
-    ));
+    const task = inventoryTasks.find((t) => t.id === taskId);
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.INVENTORY_TASK_REOPEN,
+      `重新开启盘点「${task ? task.name : taskId}」`,
+      [{ entityType: 'inventoryTasks', entityId: taskId, entityLabel: task ? task.name : taskId }],
+      () => {
+        setInventoryTasks(inventoryTasks.map((task) =>
+          task.id === taskId
+            ? { ...task, status: '进行中', completedAt: null }
+            : task
+        ));
+      }
+    );
   }
 
   const selectedInventoryTask = useMemo(() =>
@@ -1511,10 +1771,6 @@ function App() {
   function confirmBatchImport() {
     if (!batchPreview || batchPreview.validRows.length === 0) return;
 
-    if (batchPreview.newArtists && batchPreview.newArtists.length > 0) {
-      setArtists([...batchPreview.newArtists, ...artists]);
-    }
-
     const newWorks = batchPreview.validRows.map((row) => ({
       id: crypto.randomUUID(),
       artist: row.cleaned.artist,
@@ -1528,7 +1784,23 @@ function App() {
       settlementDate: null
     }));
 
-    setWorks([...newWorks, ...works]);
+    const hasNewArtists = batchPreview.newArtists && batchPreview.newArtists.length > 0;
+    const summary = `导入${newWorks.length}件作品${hasNewArtists ? `、${batchPreview.newArtists.length}位艺术家` : ''}`;
+
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.BATCH_IMPORT_WORKS,
+      summary,
+      [
+        { entityType: 'works', entityId: 'batch', entityLabel: `${newWorks.length}件作品` },
+        ...(hasNewArtists ? [{ entityType: 'artists', entityId: 'batch', entityLabel: `${batchPreview.newArtists.length}位艺术家` }] : [])
+      ],
+      () => {
+        if (hasNewArtists) {
+          setArtists([...batchPreview.newArtists, ...artists]);
+        }
+        setWorks([...newWorks, ...works]);
+      }
+    );
     setBatchCsvText('');
     setBatchPreview(null);
     setColumnMapping({});
@@ -1544,15 +1816,6 @@ function App() {
   }
 
   const BACKUP_VERSION = 1;
-  const STORAGE_KEYS = {
-    artists: 'zfl-5-artists',
-    works: 'zfl-5-works',
-    inquiries: 'zfl-5-inquiries',
-    orders: 'zfl-5-orders',
-    statements: 'zfl-5-statements',
-    loans: 'zfl-5-loans',
-    inventoryTasks: 'zfl-5-inventory-tasks'
-  };
 
   const FIELD_DEFAULTS = {
     artists: { id: '', name: '', phone: '', style: '', note: '' },
@@ -1757,17 +2020,34 @@ function App() {
       });
     }
 
-    for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
-      localStorage.setItem(storageKey, JSON.stringify(restoredData[key]));
-    }
+    const totalAdds = Object.values(migrationPreview.entities).reduce(
+      (sum, a) => sum + a.records.filter((r) => r.action === 'add').length, 0
+    );
+    const totalOverwrites = Object.values(migrationPreview.entities).reduce(
+      (sum, a) => sum + a.records.filter((r) => r.action === 'overwrite').length, 0
+    );
 
-    setArtists(restoredData.artists);
-    setWorks(restoredData.works);
-    setInquiries(restoredData.inquiries);
-    setOrders(restoredData.orders);
-    setStatements(restoredData.statements);
-    setLoans(restoredData.loans);
-    setInventoryTasks(restoredData.inventoryTasks);
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.BACKUP_IMPORT,
+      `导入备份：${totalAdds}条新增，${totalOverwrites}条覆盖`,
+      Object.keys(migrationPreview.entities).map((entityType) => ({
+        entityType,
+        entityId: 'backup-import',
+        entityLabel: ENTITY_LABELS[entityType] || entityType
+      })),
+      () => {
+        for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
+          localStorage.setItem(storageKey, JSON.stringify(restoredData[key]));
+        }
+        setArtists(restoredData.artists);
+        setWorks(restoredData.works);
+        setInquiries(restoredData.inquiries);
+        setOrders(restoredData.orders);
+        setStatements(restoredData.statements);
+        setLoans(restoredData.loans);
+        setInventoryTasks(restoredData.inventoryTasks);
+      }
+    );
 
     setMigrationStep('done');
   }
@@ -1788,27 +2068,31 @@ function App() {
       }
     });
 
-    if (patchTypes.size === 0 || patchTypes.has('artists')) {
-      if (updatedData.artists) setArtists(updatedData.artists);
-    }
-    if (patchTypes.size === 0 || patchTypes.has('works')) {
-      if (updatedData.works) setWorks(updatedData.works);
-    }
-    if (patchTypes.size === 0 || patchTypes.has('inquiries')) {
-      if (updatedData.inquiries) setInquiries(updatedData.inquiries);
-    }
-    if (patchTypes.size === 0 || patchTypes.has('orders')) {
-      if (updatedData.orders) setOrders(updatedData.orders);
-    }
-    if (patchTypes.size === 0 || patchTypes.has('statements')) {
-      if (updatedData.statements) setStatements(updatedData.statements);
-    }
-    if (patchTypes.size === 0 || patchTypes.has('loans')) {
-      if (updatedData.loans) setLoans(updatedData.loans);
-    }
-    if (patchTypes.size === 0 || patchTypes.has('inventoryTasks')) {
-      if (updatedData.inventoryTasks) setInventoryTasks(updatedData.inventoryTasks);
-    }
+    const summary = `批量修复${patches.length}个问题`;
+
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.HEALTH_CENTER_FIX,
+      summary,
+      [...patchTypes].map((entityType) => ({
+        entityType,
+        entityId: 'health-fix',
+        entityLabel: ENTITY_LABELS[entityType] || entityType
+      })),
+      () => {
+        for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
+          if (updatedData[key] !== undefined) {
+            localStorage.setItem(storageKey, JSON.stringify(updatedData[key]));
+          }
+        }
+        if (updatedData.artists) setArtists(updatedData.artists);
+        if (updatedData.works) setWorks(updatedData.works);
+        if (updatedData.inquiries) setInquiries(updatedData.inquiries);
+        if (updatedData.orders) setOrders(updatedData.orders);
+        if (updatedData.statements) setStatements(updatedData.statements);
+        if (updatedData.loans) setLoans(updatedData.loans);
+        if (updatedData.inventoryTasks) setInventoryTasks(updatedData.inventoryTasks);
+      }
+    );
   }
 
   const ENTITY_LABELS = {
@@ -1828,14 +2112,48 @@ function App() {
           <p>独立画廊</p>
           <h1>作品寄售管理</h1>
         </div>
-        <div className="stats">
-          <span><Brush size={18} />{works.length}件作品</span>
-          <span><Banknote size={18} />¥{totalValue.toLocaleString()}</span>
-          <span><Calendar size={18} />{settlementWorks.length}件待结算</span>
-          <span><ArrowLeftRight size={18} />{onLoanCount}件借展中</span>
-          <span><User size={18} />{customerStats.totalCount}位客户</span>
+        <div className="hero-right">
+          <div className="undo-redo-bar">
+            <button
+              className="ghost undo-btn"
+              disabled={!historyState.canUndo}
+              onClick={handleUndo}
+              title={historyState.lastOperation ? `撤销：${historyState.lastOperation.typeLabel} — ${historyState.lastOperation.summary}` : '撤销 (Ctrl+Z)'}
+            >
+              <Undo2 size={15} />
+              <span>撤销{historyState.undoCount > 0 ? ` (${historyState.undoCount})` : ''}</span>
+            </button>
+            <button
+              className="ghost redo-btn"
+              disabled={!historyState.canRedo}
+              onClick={handleRedo}
+              title={historyState.nextRedo ? `恢复：${historyState.nextRedo.typeLabel} — ${historyState.nextRedo.summary}` : '恢复 (Ctrl+Y)'}
+            >
+              <Redo2 size={15} />
+              <span>恢复{historyState.redoCount > 0 ? ` (${historyState.redoCount})` : ''}</span>
+            </button>
+          </div>
+          <div className="stats">
+            <span><Brush size={18} />{works.length}件作品</span>
+            <span><Banknote size={18} />¥{totalValue.toLocaleString()}</span>
+            <span><Calendar size={18} />{settlementWorks.length}件待结算</span>
+            <span><ArrowLeftRight size={18} />{onLoanCount}件借展中</span>
+            <span><User size={18} />{customerStats.totalCount}位客户</span>
+          </div>
         </div>
       </header>
+
+      <div className="toast-container">
+        {toasts.map((toast) => (
+          <div key={toast.toastId} className={`toast toast-${toast.type}`}>
+            <span className="toast-message">{toast.message}</span>
+            {toast.canUndo && (
+              <button className="toast-action" onClick={() => { handleUndo(); dismissToast(toast.toastId); }}>撤销</button>
+            )}
+            <button className="toast-dismiss" onClick={() => dismissToast(toast.toastId)}><X size={14} /></button>
+          </div>
+        ))}
+      </div>
 
       <section className="forms">
         <form className="panel" onSubmit={addArtist}>
@@ -1940,7 +2258,7 @@ function App() {
                       <Receipt size={14} /> 登记销售
                     </button>
                   )}
-                  <button className="ghost" onClick={() => updateWork(work.id, { settlement: '已结算', settlementDate: iso(0) })}>完成结算</button>
+                  <button className="ghost" onClick={() => settleWork(work.id)}>完成结算</button>
                   <button className="outline" onClick={() => openLoanForWork(work.id)}>
                     <ArrowLeftRight size={14} /> 登记借展
                   </button>
