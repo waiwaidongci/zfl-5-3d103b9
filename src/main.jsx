@@ -80,6 +80,31 @@ const normalizeHeader = (header) => {
   }
   return null;
 };
+const isNumericCell = (cell) => {
+  const cleaned = cell.trim().replace(/[￥¥,，\s]/g, '');
+  return cleaned !== '' && Number.isFinite(Number(cleaned));
+};
+const isDateLikeCell = (cell) => {
+  const value = cell.trim();
+  if (!value) return false;
+  return /^\d{4}[-/年]\d{1,2}([-月/]\d{1,2})?/.test(value) || !isNaN(new Date(value).getTime());
+};
+const looksLikeUnmatchedHeader = (cells) => {
+  const nonEmptyCells = cells.map((cell) => cell.trim()).filter(Boolean);
+  if (nonEmptyCells.length < 2) return false;
+
+  const hasDataValue = nonEmptyCells.some((cell) => (
+    isNumericCell(cell) ||
+    isDateLikeCell(cell) ||
+    VALID_EXHIBIT.includes(cell) ||
+    VALID_SALE.includes(cell)
+  ));
+  if (hasDataValue) return false;
+
+  const headerKeywordPattern = /(艺术|作者|画家|创作|作品|品名|标题|名称|价格|标价|售价|定价|金额|日期|时间|入库|入仓|到店|展态|状态|位置|库位|销售|售卖|artist|title|price|date|exhibit|sale)/i;
+  const keywordHits = nonEmptyCells.filter((cell) => headerKeywordPattern.test(cell)).length;
+  return keywordHits >= Math.min(2, nonEmptyCells.length);
+};
 const generateDefaultMapping = (detectedColumns) => {
   const mapping = {};
   const usedTargets = new Set();
@@ -222,10 +247,11 @@ function parseCSV(text, customMapping = {}) {
   const parseLine = (line) => parseCSVLine(line, delimiter);
 
   const firstLine = parseLine(lines[0]);
-  const hasHeader = firstLine.some(cell => {
+  const hasRecognizedHeader = firstLine.some(cell => {
     const normalized = normalizeHeader(cell.trim());
     return normalized !== null || CSV_COLUMNS.includes(cell.trim());
   });
+  const hasHeader = hasRecognizedHeader || looksLikeUnmatchedHeader(firstLine);
 
   let headerMap = null;
   let dataStart = 0;
