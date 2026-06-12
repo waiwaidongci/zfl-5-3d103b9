@@ -932,15 +932,15 @@ function App() {
         }
       }
 
-      let finalPaymentDate;
-      if (paymentDate !== undefined && paymentDate !== null) {
-        finalPaymentDate = paymentDate;
+      let finalPaymentDate = null;
+      if (finalStatus === '待付款') {
+        finalPaymentDate = null;
+      } else if (paymentDate !== undefined && paymentDate !== null) {
+        finalPaymentDate = paymentDate || iso(0);
       } else if (s.paymentDate) {
         finalPaymentDate = s.paymentDate;
-      } else if (finalStatus === '已付款' || finalStatus === '部分付款') {
-        finalPaymentDate = iso(0);
       } else {
-        finalPaymentDate = null;
+        finalPaymentDate = iso(0);
       }
 
       return {
@@ -960,7 +960,7 @@ function App() {
     setPaymentForm({
       paymentStatus: statement.paymentStatus || '待付款',
       paidAmount: String(statement.paidAmount || 0),
-      paymentDate: statement.paymentDate || iso(0),
+      paymentDate: statement.paymentDate || ((statement.paymentStatus === '已付款' || statement.paymentStatus === '部分付款') ? iso(0) : ''),
       paymentNote: statement.paymentNote || ''
     });
     setShowPaymentForm(true);
