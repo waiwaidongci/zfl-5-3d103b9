@@ -8,6 +8,7 @@ import DataHealthCenter from './DataHealthCenter.jsx';
 import SalesFunnel from './SalesFunnel.jsx';
 import { buildCustomerProfile } from './customerUtils.js';
 import { historyManager, OPERATION_TYPES, OPERATION_LABELS, STORAGE_KEYS } from './historyManager.js';
+import MigrationWizard from './MigrationWizard.jsx';
 
 const iso = (offset = 0) => {
   const date = new Date();
@@ -1820,7 +1821,7 @@ function App() {
     setImportStep('input');
   }
 
-  const BACKUP_VERSION = 1;
+  const BACKUP_VERSION = 2;
 
   const FIELD_DEFAULTS = {
     artists: { id: '', name: '', phone: '', style: '', note: '' },
@@ -2061,6 +2062,35 @@ function App() {
     setMigrationPreview(null);
     setMigrationStep('idle');
     setMigrationError('');
+  }
+
+  function handleMigrationImport(restoredData, importSummary) {
+    const totalAdds = importSummary.added || 0;
+    const totalOverwrites = importSummary.overwritten || 0;
+
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.BACKUP_IMPORT,
+      `迁移导入：${totalAdds}条新增，${totalOverwrites}条覆盖`,
+      Object.keys(STORAGE_KEYS).map((entityType) => ({
+        entityType,
+        entityId: 'migration-import',
+        entityLabel: ENTITY_LABELS[entityType] || entityType
+      })),
+      () => {
+        for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
+          if (restoredData[key] !== undefined) {
+            localStorage.setItem(storageKey, JSON.stringify(restoredData[key]));
+          }
+        }
+        if (restoredData.artists) setArtists(restoredData.artists);
+        if (restoredData.works) setWorks(restoredData.works);
+        if (restoredData.inquiries) setInquiries(restoredData.inquiries);
+        if (restoredData.orders) setOrders(restoredData.orders);
+        if (restoredData.statements) setStatements(restoredData.statements);
+        if (restoredData.loans) setLoans(restoredData.loans);
+        if (restoredData.inventoryTasks) setInventoryTasks(restoredData.inventoryTasks);
+      }
+    );
   }
 
   function handleFixApplied(updatedData, patches) {
@@ -3688,156 +3718,21 @@ function App() {
             <button className="ghost" onClick={() => setShowSalesFunnel(!showSalesFunnel)}><TrendingUp size={14} /> 销售漏斗</button>
             <button className="ghost" onClick={() => setShowHealthCenter(!showHealthCenter)}><Shield size={14} /> 数据健康中心</button>
             <button className="ghost" onClick={exportBackup}><Download size={14} /> 导出备份</button>
-            <button className="ghost" onClick={() => setShowMigration(!showMigration)}><Upload size={14} /> 导入恢复</button>
+            <button className="ghost" onClick={() => setShowMigration(!showMigration)}><Upload size={14} /> 数据迁移</button>
           </div>
         </div>
         <div className="migration-info">
-          <p><Info size={14} /> 将当前所有数据（艺术家、作品、询价、订单、对账单、借展、盘点）导出为JSON备份文件，或从备份文件恢复数据。恢复前会展示预览，说明新增、覆盖、跳过的记录。</p>
+          <p><Info size={14} /> 分阶段数据迁移向导：先校验备份版本和字段完整性，再按实体类型对比新增/覆盖/冲突，允许按类型选择导入策略，导入后自动运行数据健康扫描并展示摘要和修复建议。</p>
         </div>
       </section>
 
       {showMigration && (
-        <section className="panel inquiry-form-panel">
-          <div className="panel-header">
-            <h2><Upload size={18} />从备份文件恢复数据</h2>
-            <button className="ghost small" onClick={() => { setShowMigration(false); resetMigration(); }}>收起</button>
-          </div>
-
-          {migrationStep === 'idle' && (
-            <div className="migration-upload-area">
-              <label className="migration-file-label">
-                <input
-                  type="file"
-                  accept=".json"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleImportFile(e.target.files[0]);
-                    }
-                    e.target.value = '';
-                  }}
-                />
-                <div className="migration-dropzone">
-                  <Upload size={32} />
-                  <span>点击选择备份文件（.json）</span>
-                  <span className="migration-hint">支持从导出功能生成的 JSON 备份文件</span>
-                </div>
-              </label>
-            </div>
-          )}
-
-          {migrationStep === 'error' && (
-            <div className="form-errors">
-              <span className="form-error-tag"><AlertCircle size={12} /> {migrationError}</span>
-              <button className="ghost small" onClick={resetMigration}>重试</button>
-            </div>
-          )}
-
-          {migrationStep === 'done' && (
-            <div className="migration-success">
-              <CheckCircle2 size={24} />
-              <strong>数据恢复完成</strong>
-              <span>已新增 {migrationPreview.totalAdd} 条、覆盖 {migrationPreview.totalOverwrite} 条、跳过 {migrationPreview.totalSkip} 条记录</span>
-              <button className="ghost small" onClick={resetMigration}>继续操作</button>
-            </div>
-          )}
-
-          {migrationStep === 'preview' && migrationPreview && (
-            <div className="migration-preview">
-              <div className="migration-preview-header">
-                <div className="migration-preview-info">
-                  <span className="migration-meta"><Calendar size={14} /> 备份时间：{migrationPreview.exportedAt ? new Date(migrationPreview.exportedAt).toLocaleString('zh-CN') : '未知'}</span>
-                  <span className="migration-meta"><Database size={14} /> 备份版本：v{migrationPreview.backupVersion || 0}</span>
-                </div>
-              </div>
-
-              <div className="migration-summary">
-                <span className="migration-summary-item add"><Plus size={16} /> 新增 {migrationPreview.totalAdd} 条</span>
-                <span className="migration-summary-item overwrite"><RotateCcw size={16} /> 覆盖 {migrationPreview.totalOverwrite} 条</span>
-                <span className="migration-summary-item skip"><XCircle size={16} /> 跳过 {migrationPreview.totalSkip} 条</span>
-                <span className="migration-summary-item total">共 {migrationPreview.totalRecords} 条</span>
-              </div>
-
-              {migrationPreview.warnings.length > 0 && (
-                <div className="migration-warnings">
-                  <h3><AlertTriangle size={16} /> 注意事项</h3>
-                  <ul>
-                    {migrationPreview.warnings.map((w, idx) => (
-                      <li key={idx}>{w}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {Object.entries(migrationPreview.entities).map(([entityType, analysis]) => {
-                if (analysis.totalCount === 0) return null;
-                return (
-                  <div key={entityType} className="migration-entity-section">
-                    <h3 className="migration-entity-title">{ENTITY_LABELS[entityType]}（{analysis.totalCount}条）</h3>
-                    <div className="migration-entity-summary">
-                      <span className="mig-add">新增 {analysis.addCount}</span>
-                      <span className="mig-overwrite">覆盖 {analysis.overwriteCount}</span>
-                      <span className="mig-skip">跳过 {analysis.skipCount}</span>
-                    </div>
-                    {analysis.records.length > 0 && (
-                      <details className="migration-details">
-                        <summary>查看明细</summary>
-                        <div className="migration-table-container">
-                          <table className="migration-table">
-                            <thead>
-                              <tr>
-                                <th>操作</th>
-                                <th>记录摘要</th>
-                                <th>说明</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {analysis.records.map((item, idx) => (
-                                <tr key={idx} className={`migration-row-${item.action}`}>
-                                  <td>
-                                    <span className={`migration-action-tag migration-action-${item.action}`}>
-                                      {item.action === 'add' && <Plus size={12} />}
-                                      {item.action === 'overwrite' && <RotateCcw size={12} />}
-                                      {item.action === 'skip' && <XCircle size={12} />}
-                                      {item.action === 'add' ? '新增' : item.action === 'overwrite' ? '覆盖' : '跳过'}
-                                    </span>
-                                  </td>
-                                  <td className="migration-record-summary">
-                                    {entityType === 'artists' && <>{item.record.name}{item.record.phone ? ` · ${item.record.phone}` : ''}</>}
-                                    {entityType === 'works' && <>{item.record.artist} — {item.record.title} · ¥{Number(item.record.price || 0).toLocaleString()}</>}
-                                    {entityType === 'inquiries' && <>{item.record.workTitle} · {item.record.customerName}</>}
-                                    {entityType === 'orders' && <>{item.record.workTitle} · {item.record.customerName} · ¥{Number(item.record.dealPrice || 0).toLocaleString()}</>}
-                                    {entityType === 'statements' && <>{item.record.artist} · {item.record.startDate}~{item.record.endDate}</>}
-                                    {entityType === 'loans' && <>{item.record.workTitle} · {item.record.borrower}</>}
-                                    {entityType === 'inventoryTasks' && <>{item.record.name}</>}
-                                  </td>
-                                  <td className="migration-reason">{item.reason}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                );
-              })}
-
-              <div className="migration-confirm-area">
-                <div className="form-hint migration-confirm-warning">
-                  <AlertTriangle size={12} /> 恢复操作将直接修改当前数据：新增的记录会加入列表，ID相同的记录会被覆盖，艺术家重名和作品重复的记录会被跳过。建议先导出一份当前数据的备份。
-                </div>
-                <div className="form-actions">
-                  <button type="button" className="ghost" onClick={resetMigration}>取消</button>
-                  <button type="button" onClick={exportBackup} className="outline"><Download size={14} /> 先备份当前数据</button>
-                  <button type="button" onClick={confirmRestore} disabled={migrationPreview.totalRecords === 0}>
-                    <RotateCcw size={14} /> 确认恢复
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
+        <MigrationWizard
+          currentData={getCurrentDataFromState()}
+          onImport={handleMigrationImport}
+          onExportBackup={exportBackup}
+          onCancel={() => setShowMigration(false)}
+        />
       )}
 
       {inventoryCompleteWarning && (
