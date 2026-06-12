@@ -62,6 +62,7 @@ const VALID_EXHIBIT = ['展出中', '库房', '借展', '退回'];
 const VALID_SALE = ['待售', '已预订', '已售'];
 const CSV_COLUMNS = ['艺术家', '作品名', '价格', '入库日期', '展态', '销售状态'];
 const BALANCE_STATUS = ['待支付', '已支付', '部分支付'];
+const PAYMENT_STATUS = ['待付款', '部分付款', '已付款'];
 const INVENTORY_STATUS = ['未核对', '已核对', '异常', '缺失'];
 const INVENTORY_TASK_STATUS = ['进行中', '已完成'];
 
@@ -371,6 +372,26 @@ function App() {
 
   const commissionRateMap = useMemo(() => getCommissionRateMap(artists), [artists]);
 
+  const workStatementMap = useMemo(() => {
+    const map = {};
+    statements.forEach((statement) => {
+      if (!statement.confirmed) return;
+      statement.items.forEach((item) => {
+        if (!map[item.workId] || new Date(statement.confirmedAt) > new Date(map[item.workId].confirmedAt)) {
+          map[item.workId] = {
+            statementId: statement.id,
+            paymentStatus: statement.paymentStatus || '待付款',
+            paidAmount: Number(statement.paidAmount || 0),
+            totalPayable: Number(item.payable || 0),
+            confirmedAt: statement.confirmedAt,
+            artist: statement.artist
+          };
+        }
+      });
+    });
+    return map;
+  }, [statements]);
+
   const monthlySettlement = useMemo(() => {
     const now = new Date();
     const currentMonth = now.getMonth();
@@ -407,6 +428,17 @@ function App() {
       return sum + getDealPriceForWork(w.id) * rate;
     }, 0);
 
+    const confirmedStatementsThisMonth = statements.filter((s) => s.confirmed && isThisMonth(s.confirmedAt));
+    const paidStatementsThisMonth = statements.filter((s) => s.paymentStatus === '已付款' && isThisMonth(s.paymentDate));
+
+    const confirmedStatementAmount = confirmedStatementsThisMonth.reduce((sum, s) => sum + Number(s.totalPayable || 0), 0);
+    const confirmedStatementCommission = confirmedStatementsThisMonth.reduce((sum, s) => sum + Number(s.totalCommission || 0), 0);
+    const paidStatementAmount = paidStatementsThisMonth.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0);
+    const pendingPaymentAmount = confirmedStatementsThisMonth.reduce(
+      (sum, s) => sum + Math.max(0, Number(s.totalPayable || 0) - Number(s.paidAmount || 0)),
+      0
+    );
+
     return {
       pendingCount: pendingThisMonthWorks.length,
       pendingAmount,
@@ -416,9 +448,15 @@ function App() {
       soldAmount,
       estimatedCommission,
       settledCommission,
+      confirmedStatementCount: confirmedStatementsThisMonth.length,
+      confirmedStatementAmount,
+      confirmedStatementCommission,
+      paidStatementCount: paidStatementsThisMonth.length,
+      paidStatementAmount,
+      pendingPaymentAmount,
       currentMonthLabel: `${currentYear}年${currentMonth + 1}月`
     };
-  }, [works, orders, commissionRateMap]);
+  }, [works, orders, statements, commissionRateMap]);
 
   const filteredInquiries = useMemo(() => {
     return inquiries
@@ -843,6 +881,10 @@ function App() {
       commissionRate: statementPreview.commissionRate,
       confirmed: false,
       confirmedAt: null,
+      paymentStatus: '待付款',
+      paymentDate: null,
+      paymentNote: '',
+      paidAmount: 0,
       createdAt: new Date().toISOString()
     };
 
@@ -855,9 +897,65 @@ function App() {
   function confirmStatement(statementId) {
     setStatements(statements.map((s) =>
       s.id === statementId
-        ? { ...s, confirmed: true, confirmedAt: new Date().toISOString() }
+        ? { ...s, confirmed: true, confirmedAt: new Date().toISOString(), paymentStatus: s.paymentStatus || '待付款' }
         : s
     ));
+  }
+
+  function updateStatementPayment(statementId, paymentStatus, paidAmount, paymentNote, paymentDate) {
+    setStatements(statements.map((s) => {
+      if (s.id !== statementId) return s;
+      const newPaidAmount = paidAmount !== undefined ? Number(paidAmount || 0) : s.paidAmount;
+      let finalStatus = paymentStatus || s.paymentStatus;
+      if (!paymentStatus && paidAmount !== undefined) {
+        if (newPaidAmount <= 0) {
+          finalStatus = '待付款';
+        } else if (newPaidAmount >= s.totalPayable) {
+          finalStatus = '已付款';
+        } else {
+          finalStatus = '部分付款';
+        }
+      }
+      return {
+        ...s,
+        paymentStatus: finalStatus,
+        paidAmount: newPaidAmount,
+        paymentNote: paymentNote !== undefined ? paymentNote : s.paymentNote,
+        paymentDate: paymentDate || s.paymentDate || (finalStatus === '已付款' ? iso(0) : s.paymentDate)
+      };
+    }));
+  }
+
+  function openPaymentEditor(statementId) {
+    const statement = statements.find((s) => s.id === statementId);
+    if (!statement) return;
+    setEditingPaymentStatementId(statementId);
+    setPaymentForm({
+      paymentStatus: statement.paymentStatus || '待付款',
+      paidAmount: String(statement.paidAmount || 0),
+      paymentDate: statement.paymentDate || iso(0),
+      paymentNote: statement.paymentNote || ''
+    });
+    setShowPaymentForm(true);
+  }
+
+  function markStatementFullyPaid(statementId) {
+    const statement = statements.find((s) => s.id === statementId);
+    if (!statement) return;
+    updateStatementPayment(statementId, '已付款', statement.totalPayable, statement.paymentNote || '', iso(0));
+  }
+
+  function savePayment() {
+    if (!editingPaymentStatementId) return;
+    updateStatementPayment(
+      editingPaymentStatementId,
+      paymentForm.paymentStatus,
+      paymentForm.paidAmount,
+      paymentForm.paymentNote,
+      paymentForm.paymentDate
+    );
+    setShowPaymentForm(false);
+    setEditingPaymentStatementId(null);
   }
 
   function clearStatementForm() {
@@ -970,6 +1068,11 @@ function App() {
     };
   }, [inventoryTasks]);
 
+  const [statementPaymentFilter, setStatementPaymentFilter] = useState('全部付款状态');
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [editingPaymentStatementId, setEditingPaymentStatementId] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({ paymentStatus: '待付款', paidAmount: '', paymentDate: iso(0), paymentNote: '' });
+
   const filteredStatements = useMemo(() => {
     return statements
       .filter((s) => {
@@ -978,8 +1081,12 @@ function App() {
         if (statementFilter === '待确认') return !s.confirmed;
         return s.artist === statementFilter;
       })
+      .filter((s) => {
+        if (statementPaymentFilter === '全部付款状态') return true;
+        return s.paymentStatus === statementPaymentFilter;
+      })
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }, [statements, statementFilter]);
+  }, [statements, statementFilter, statementPaymentFilter]);
 
   function previewBatchImport() {
     if (!batchCsvText.trim()) {
@@ -1061,7 +1168,7 @@ function App() {
     works: { id: '', artist: '', title: '', price: 0, inDate: '', exhibit: '展出中', sale: '待售', settlement: '未结算', saleDate: null, settlementDate: null },
     inquiries: { id: '', workId: '', workTitle: '', customerName: '', customerPhone: '', intendedPrice: 0, remark: '', status: '待跟进', createdAt: '' },
     orders: { id: '', workId: '', workTitle: '', workArtist: '', customerName: '', customerPhone: '', dealPrice: 0, deposit: 0, balanceStatus: '待支付', dealDate: '', note: '', createdAt: '', cancelledAt: null },
-    statements: { id: '', artist: '', startDate: '', endDate: '', items: [], totalDealPrice: 0, totalCommission: 0, totalPayable: 0, commissionRate: 35, confirmed: false, confirmedAt: null, createdAt: '' },
+    statements: { id: '', artist: '', startDate: '', endDate: '', items: [], totalDealPrice: 0, totalCommission: 0, totalPayable: 0, commissionRate: 35, confirmed: false, confirmedAt: null, paymentStatus: '待付款', paymentDate: null, paymentNote: '', paidAmount: 0, createdAt: '' },
     loans: { id: '', workId: '', workTitle: '', workArtist: '', borrower: '', loanDate: '', expectedReturnDate: '', contactPerson: '', notes: '', returnedAt: null, createdAt: '' },
     inventoryTasks: { id: '', name: '', note: '', status: '进行中', items: [], totalCount: 0, checkedCount: 0, exceptionCount: 0, missingCount: 0, createdAt: '', completedAt: null }
   };
@@ -1395,6 +1502,7 @@ function App() {
             const today = new Date().toISOString().slice(0, 10);
             const isOverdue = activeLoan && activeLoan.expectedReturnDate < today;
             const soldWithoutOrder = soldWithoutOrderIds.has(work.id);
+            const workStatement = workStatementMap[work.id];
             return (
               <article key={work.id} className={`${activeLoan ? 'work-on-loan' : ''} ${soldWithoutOrder ? 'work-sold-orphan' : ''}`}>
                 <strong>{work.title}</strong>
@@ -1419,6 +1527,12 @@ function App() {
                   <div className="order-badge order-orphan">
                     <AlertCircle size={12} />
                     <span>缺少订单记录（旧数据）</span>
+                  </div>
+                )}
+                {workStatement && (
+                  <div className={`payment-badge payment-${workStatement.paymentStatus}`}>
+                    <Banknote size={12} />
+                    <span>付款：{workStatement.paymentStatus}</span>
                   </div>
                 )}
                 <div className="actions">
@@ -2057,6 +2171,58 @@ function App() {
         </section>
       )}
 
+      {showPaymentForm && (
+        <section className="panel inquiry-form-panel">
+          <div className="panel-header">
+            <h2><Banknote size={18} />登记对账单付款</h2>
+            <button className="ghost small" onClick={() => { setShowPaymentForm(false); setEditingPaymentStatementId(null); }}>收起</button>
+          </div>
+          <form className="inquiry-form" onSubmit={(e) => { e.preventDefault(); savePayment(); }}>
+            <div className="form-row split">
+              <label><span className="label-icon"><Coins size={14} /></span>
+                <select value={paymentForm.paymentStatus} onChange={(e) => setPaymentForm({ ...paymentForm, paymentStatus: e.target.value })}>
+                  {PAYMENT_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <span className="label-hint">付款状态</span>
+              </label>
+              <label><span className="label-icon"><Banknote size={14} /></span>
+                <input
+                  type="number"
+                  placeholder="已付金额 (元)"
+                  value={paymentForm.paidAmount}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, paidAmount: e.target.value })}
+                />
+                <span className="label-hint">实际已付金额</span>
+              </label>
+            </div>
+            <div className="form-row split">
+              <label><span className="label-icon"><Calendar size={14} /></span>
+                <input
+                  type="date"
+                  value={paymentForm.paymentDate}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, paymentDate: e.target.value })}
+                />
+                <span className="label-hint">付款日期</span>
+              </label>
+              <label><span className="label-icon"><MessageSquare size={14} /></span>
+                <input
+                  placeholder="付款备注 (选填)"
+                  value={paymentForm.paymentNote}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, paymentNote: e.target.value })}
+                />
+                <span className="label-hint">备注说明</span>
+              </label>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="ghost" onClick={() => { setShowPaymentForm(false); setEditingPaymentStatementId(null); }}>取消</button>
+              <button type="submit">
+                <CheckCircle2 size={14} /> 保存付款记录
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
       <section className="panel">
         <div className="toolbar">
           <h2><FileText size={18} />艺术家对账单记录 ({filteredStatements.length})</h2>
@@ -2068,80 +2234,117 @@ function App() {
               {artists.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
             </select>
           </label>
+          <label><Filter size={16} />
+            <select value={statementPaymentFilter} onChange={(e) => setStatementPaymentFilter(e.target.value)}>
+              <option value="全部付款状态">全部付款状态</option>
+              {PAYMENT_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
           <div></div>
         </div>
         {filteredStatements.length === 0 ? (
           <p className="empty-tip">暂无对账单记录，点击上方"生成对账单"开始创建。</p>
         ) : (
           <div className="statement-list">
-            {filteredStatements.map((s) => (
-              <div className={`statement-card ${s.confirmed ? 'statement-confirmed' : 'statement-pending'}`} key={s.id}>
-                <div className="statement-card-header">
-                  <div>
-                    <strong className="statement-artist">{s.artist}</strong>
-                    <span className="statement-period">{s.startDate} 至 {s.endDate}</span>
-                  </div>
-                  <div className="statement-status">
-                    {s.confirmed ? (
-                      <span className="status-tag status-confirmed">
-                        <CheckCircle2 size={14} /> 已确认
-                        {s.confirmedAt && <em> · {new Date(s.confirmedAt).toLocaleDateString('zh-CN')}</em>}
-                      </span>
-                    ) : (
-                      <span className="status-tag status-unconfirmed">
-                        <Clock size={14} /> 待确认
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="statement-card-stats">
-                  <div><span>成交</span><strong>{s.items.length}件 · ¥{s.totalDealPrice.toLocaleString()}</strong></div>
-                  <div><span>佣金({s.commissionRate}%)</span><strong className="text-purple">¥{s.totalCommission.toLocaleString()}</strong></div>
-                  <div><span>应付</span><strong className="text-green">¥{s.totalPayable.toLocaleString()}</strong></div>
-                  <div className="statement-created"><span>创建</span><em>{new Date(s.createdAt).toLocaleDateString('zh-CN')}</em></div>
-                </div>
-                <div className="statement-items-collapse">
-                  <details>
-                    <summary>查看明细（{s.items.length}件作品）</summary>
-                    <div className="statement-table-container">
-                      <table className="statement-table">
-                        <thead>
-                          <tr>
-                            <th>作品名称</th>
-                            <th>成交日期</th>
-                            <th>客户</th>
-                            <th>成交价</th>
-                            <th>佣金</th>
-                            <th>应付金额</th>
-                            <th>结算状态</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {s.items.map((it, idx) => (
-                            <tr key={idx}>
-                              <td>{it.workTitle}</td>
-                              <td>{it.saleDate}</td>
-                              <td>{it.customerName || '-'}</td>
-                              <td>¥{it.dealPrice.toLocaleString()}</td>
-                              <td className="text-purple">¥{it.commission.toLocaleString()}</td>
-                              <td className="text-green">¥{it.payable.toLocaleString()}</td>
-                              <td><span className={`settlement-tag settlement-${it.settlementStatus}`}>{it.settlementStatus}</span></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+            {filteredStatements.map((s) => {
+              const paidAmount = Number(s.paidAmount || 0);
+              const pendingAmount = Math.max(0, Number(s.totalPayable || 0) - paidAmount);
+              return (
+                <div className={`statement-card ${s.confirmed ? 'statement-confirmed' : 'statement-pending'}`} key={s.id}>
+                  <div className="statement-card-header">
+                    <div>
+                      <strong className="statement-artist">{s.artist}</strong>
+                      <span className="statement-period">{s.startDate} 至 {s.endDate}</span>
                     </div>
-                  </details>
-                </div>
-                {!s.confirmed && (
-                  <div className="statement-card-actions">
-                    <button onClick={() => confirmStatement(s.id)}>
-                      <CheckCircle2 size={14} /> 确认本次对账单
-                    </button>
+                    <div className="statement-status">
+                      {s.confirmed ? (
+                        <span className="status-tag status-confirmed">
+                          <CheckCircle2 size={14} /> 已确认
+                          {s.confirmedAt && <em> · {new Date(s.confirmedAt).toLocaleDateString('zh-CN')}</em>}
+                        </span>
+                      ) : (
+                        <span className="status-tag status-unconfirmed">
+                          <Clock size={14} /> 待确认
+                        </span>
+                      )}
+                      <span className={`status-tag payment-status-${s.paymentStatus || '待付款'}`}>
+                        <Banknote size={12} /> {s.paymentStatus || '待付款'}
+                      </span>
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                  <div className="statement-card-stats">
+                    <div><span>成交</span><strong>{s.items.length}件 · ¥{s.totalDealPrice.toLocaleString()}</strong></div>
+                    <div><span>佣金({s.commissionRate}%)</span><strong className="text-purple">¥{s.totalCommission.toLocaleString()}</strong></div>
+                    <div><span>应付</span><strong className="text-green">¥{s.totalPayable.toLocaleString()}</strong></div>
+                    <div><span>已付</span><strong className="text-blue">¥{paidAmount.toLocaleString()}</strong></div>
+                    <div><span>待付</span><strong className={pendingAmount > 0 ? 'text-orange' : 'text-green'}>¥{pendingAmount.toLocaleString()}</strong></div>
+                    <div className="statement-created"><span>创建</span><em>{new Date(s.createdAt).toLocaleDateString('zh-CN')}</em></div>
+                  </div>
+                  {s.confirmed && (
+                    <div className="statement-payment-info">
+                      {s.paymentDate && (
+                        <span className="payment-date"><Calendar size={12} /> 付款日期：{s.paymentDate}</span>
+                      )}
+                      {s.paymentNote && (
+                        <span className="payment-note"><MessageSquare size={12} /> 付款备注：{s.paymentNote}</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="statement-items-collapse">
+                    <details>
+                      <summary>查看明细（{s.items.length}件作品）</summary>
+                      <div className="statement-table-container">
+                        <table className="statement-table">
+                          <thead>
+                            <tr>
+                              <th>作品名称</th>
+                              <th>成交日期</th>
+                              <th>客户</th>
+                              <th>成交价</th>
+                              <th>佣金</th>
+                              <th>应付金额</th>
+                              <th>结算状态</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {s.items.map((it, idx) => (
+                              <tr key={idx}>
+                                <td>{it.workTitle}</td>
+                                <td>{it.saleDate}</td>
+                                <td>{it.customerName || '-'}</td>
+                                <td>¥{it.dealPrice.toLocaleString()}</td>
+                                <td className="text-purple">¥{it.commission.toLocaleString()}</td>
+                                <td className="text-green">¥{it.payable.toLocaleString()}</td>
+                                <td><span className={`settlement-tag settlement-${it.settlementStatus}`}>{it.settlementStatus}</span></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  </div>
+                  {!s.confirmed && (
+                    <div className="statement-card-actions">
+                      <button onClick={() => confirmStatement(s.id)}>
+                        <CheckCircle2 size={14} /> 确认本次对账单
+                      </button>
+                    </div>
+                  )}
+                  {s.confirmed && (
+                    <div className="statement-card-actions">
+                      <button className="outline" onClick={() => openPaymentEditor(s.id)}>
+                        <Pencil size={14} /> 登记付款
+                      </button>
+                      {s.paymentStatus !== '已付款' && (
+                        <button onClick={() => markStatementFullyPaid(s.id)}>
+                          <CheckCircle2 size={14} /> 标记已付清
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
@@ -2608,7 +2811,7 @@ function App() {
               <div className="stat-card stat-pending">
                 <div className="stat-icon"><Clock size={20} /></div>
                 <div className="stat-info">
-                  <span className="stat-label">待结算</span>
+                  <span className="stat-label">待结算作品</span>
                   <strong className="stat-value">{monthlySettlement.pendingCount}件</strong>
                   <span className="stat-amount">¥{monthlySettlement.pendingAmount.toLocaleString()}</span>
                 </div>
@@ -2616,7 +2819,7 @@ function App() {
               <div className="stat-card stat-settled">
                 <div className="stat-icon"><CheckCircle2 size={20} /></div>
                 <div className="stat-info">
-                  <span className="stat-label">已结算</span>
+                  <span className="stat-label">已结算作品</span>
                   <strong className="stat-value">{monthlySettlement.settledCount}件</strong>
                   <span className="stat-amount">¥{monthlySettlement.settledAmount.toLocaleString()}</span>
                 </div>
@@ -2624,7 +2827,7 @@ function App() {
               <div className="stat-card stat-sold">
                 <div className="stat-icon"><Banknote size={20} /></div>
                 <div className="stat-info">
-                  <span className="stat-label">销售金额</span>
+                  <span className="stat-label">本月销售</span>
                   <strong className="stat-value">{monthlySettlement.soldCount}件已售</strong>
                   <span className="stat-amount">¥{monthlySettlement.soldAmount.toLocaleString()}</span>
                 </div>
@@ -2635,6 +2838,33 @@ function App() {
                   <span className="stat-label">预计佣金</span>
                   <strong className="stat-value">待结算部分</strong>
                   <span className="stat-amount">¥{Math.round(monthlySettlement.estimatedCommission).toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+            <div className="settlement-stats payment-stats">
+              <div className="stat-card stat-confirmed">
+                <div className="stat-icon"><FileText size={20} /></div>
+                <div className="stat-info">
+                  <span className="stat-label">已确认对账单</span>
+                  <strong className="stat-value">{monthlySettlement.confirmedStatementCount}份</strong>
+                  <span className="stat-amount">应付 ¥{monthlySettlement.confirmedStatementAmount.toLocaleString()}</span>
+                  <span className="stat-sub">佣金 ¥{Math.round(monthlySettlement.confirmedStatementCommission).toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="stat-card stat-paid">
+                <div className="stat-icon"><CheckCircle2 size={20} /></div>
+                <div className="stat-info">
+                  <span className="stat-label">实际已付款</span>
+                  <strong className="stat-value">{monthlySettlement.paidStatementCount}份</strong>
+                  <span className="stat-amount">¥{monthlySettlement.paidStatementAmount.toLocaleString()}</span>
+                </div>
+              </div>
+              <div className="stat-card stat-pending-pay">
+                <div className="stat-icon"><Clock size={20} /></div>
+                <div className="stat-info">
+                  <span className="stat-label">待付款金额</span>
+                  <strong className="stat-value">未结清</strong>
+                  <span className="stat-amount">¥{monthlySettlement.pendingPaymentAmount.toLocaleString()}</span>
                 </div>
               </div>
             </div>

@@ -86,6 +86,15 @@ button.status-select { cursor: pointer; display: inline-flex; align-items: cente
 .stat-settled .stat-amount { color: #15803d; }
 .stat-sold .stat-amount { color: #1d4ed8; }
 .stat-commission .stat-amount { color: #7c3aed; }
+.stat-sub { font-size: 12px; color: #67655e; margin-top: 2px; }
+
+.payment-stats { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e5e2dc; }
+.stat-confirmed .stat-icon { background: #f0f9ff; color: #0369a1; }
+.stat-paid .stat-icon { background: #dcfce7; color: #15803d; }
+.stat-pending-pay .stat-icon { background: #fef3c7; color: #b45309; }
+.stat-confirmed .stat-amount { color: #0369a1; }
+.stat-paid .stat-amount { color: #15803d; }
+.stat-pending-pay .stat-amount { color: #b45309; }
 
 .batch-import { display: flex; flex-direction: column; gap: 14px; }
 .batch-textarea { width: 100%; border: 1px solid #d7d4cc; border-radius: 8px; padding: 12px; font-family: inherit; font-size: 14px; min-height: 140px; resize: vertical; background: #fff; color: #242424; line-height: 1.5; }
@@ -117,6 +126,10 @@ button.status-select { cursor: pointer; display: inline-flex; align-items: cente
 
 .order-badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; background: #dcfce7; border: 1px solid #86efac; color: #166534; font-size: 13px; margin: 8px 0 4px; font-weight: 500; }
 .order-badge.order-orphan { background: #fffbeb; border-color: #fcd34d; color: #92400e; }
+.payment-badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; font-size: 13px; margin: 4px 0 0; font-weight: 500; }
+.payment-badge.payment-待付款 { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
+.payment-badge.payment-部分付款 { background: #dbeafe; border: 1px solid #93c5fd; color: #1d4ed8; }
+.payment-badge.payment-已付款 { background: #dcfce7; border: 1px solid #86efac; color: #15803d; }
 
 .work-sold-orphan { border-color: #fcd34d; background: #fffdf5; position: relative; }
 

@@ -212,6 +212,40 @@ function generateFixPreview(issues, data) {
         }
         break;
       }
+      case 'fix-payment-status-to-partial': {
+        const statement = data.statements.find((s) => s.id === issue.entityId);
+        if (statement) {
+          patches.push({
+            issueId: issue.id,
+            fixType: issue.fixType,
+            fixLabel: issue.fixLabel,
+            entityType: 'statements',
+            entityId: statement.id,
+            entityLabel: `${statement.artist} · ${statement.startDate}~${statement.endDate}`,
+            before: { paymentStatus: statement.paymentStatus },
+            after: { paymentStatus: '部分付款' },
+            description: `将对账单「${statement.artist}」付款状态从「${statement.paymentStatus || '待付款'}」改为「部分付款」`
+          });
+        }
+        break;
+      }
+      case 'fix-payment-status-to-paid': {
+        const statement = data.statements.find((s) => s.id === issue.entityId);
+        if (statement) {
+          patches.push({
+            issueId: issue.id,
+            fixType: issue.fixType,
+            fixLabel: issue.fixLabel,
+            entityType: 'statements',
+            entityId: statement.id,
+            entityLabel: `${statement.artist} · ${statement.startDate}~${statement.endDate}`,
+            before: { paymentStatus: statement.paymentStatus },
+            after: { paymentStatus: '已付款' },
+            description: `将对账单「${statement.artist}」付款状态从「${statement.paymentStatus || '待付款'}」改为「已付款」`
+          });
+        }
+        break;
+      }
       default:
         break;
     }
@@ -284,6 +318,13 @@ function applyFixes(patches, data) {
             item.id === patch.entityId ? { ...item, ...patch.after, checkedAt: new Date().toISOString() } : item
           )
         }));
+        break;
+
+      case 'fix-payment-status-to-partial':
+      case 'fix-payment-status-to-paid':
+        updatedData.statements = updatedData.statements.map((s) =>
+          s.id === patch.entityId ? { ...s, ...patch.after } : s
+        );
         break;
 
       default:

@@ -231,6 +231,101 @@ function checkCustomerStatusConflict(inquiries, orders) {
   return issues;
 }
 
+function checkPaymentConsistency(statements) {
+  const issues = [];
+
+  statements.forEach((statement) => {
+    if (!statement.confirmed) return;
+
+    const totalPayable = Number(statement.totalPayable || 0);
+    const paidAmount = Number(statement.paidAmount || 0);
+    const paymentStatus = statement.paymentStatus || '待付款';
+
+    if (paymentStatus === '已付款' && paidAmount < totalPayable) {
+      issues.push({
+        id: `payment-status-paid-but-not-full-${statement.id}`,
+        category: CATEGORY.SETTLEMENT,
+        severity: SEVERITY.WARNING,
+        title: `对账单「${statement.artist}」标记为已付款但金额不足`,
+        description: `对账单标记为「已付款」，但已付金额 ¥${paidAmount.toLocaleString()} 小于应付金额 ¥${totalPayable.toLocaleString()}。付款状态与金额不一致。`,
+        entityId: statement.id,
+        entityType: 'statements',
+        entitySnapshot: { ...statement },
+        fixType: 'fix-payment-status-to-partial',
+        fixLabel: '将付款状态改为部分付款'
+      });
+    }
+
+    if (paymentStatus === '待付款' && paidAmount > 0) {
+      issues.push({
+        id: `payment-status-pending-but-paid-${statement.id}`,
+        category: CATEGORY.SETTLEMENT,
+        severity: SEVERITY.WARNING,
+        title: `对账单「${statement.artist}」标记为待付款但已有付款记录`,
+        description: `对账单标记为「待付款」，但已付金额为 ¥${paidAmount.toLocaleString()}。付款状态与金额不一致。`,
+        entityId: statement.id,
+        entityType: 'statements',
+        entitySnapshot: { ...statement },
+        fixType: 'fix-payment-status-to-partial',
+        fixLabel: '将付款状态改为部分付款'
+      });
+    }
+
+    if (paymentStatus === '部分付款' && paidAmount >= totalPayable) {
+      issues.push({
+        id: `payment-status-partial-but-fully-paid-${statement.id}`,
+        category: CATEGORY.SETTLEMENT,
+        severity: SEVERITY.WARNING,
+        title: `对账单「${statement.artist}」标记为部分付款但金额已付清`,
+        description: `对账单标记为「部分付款」，但已付金额 ¥${paidAmount.toLocaleString()} 已达到或超过应付金额 ¥${totalPayable.toLocaleString()}。`,
+        entityId: statement.id,
+        entityType: 'statements',
+        entitySnapshot: { ...statement },
+        fixType: 'fix-payment-status-to-paid',
+        fixLabel: '将付款状态改为已付款'
+      });
+    }
+
+    if (paymentStatus === '已付款' && paidAmount > totalPayable) {
+      issues.push({
+        id: `payment-overpaid-${statement.id}`,
+        category: CATEGORY.SETTLEMENT,
+        severity: SEVERITY.INFO,
+        title: `对账单「${statement.artist}」付款金额超过应付金额`,
+        description: `已付金额 ¥${paidAmount.toLocaleString()} 超过应付金额 ¥${totalPayable.toLocaleString()}，超额支付 ¥${(paidAmount - totalPayable).toLocaleString()}。`,
+        entityId: statement.id,
+        entityType: 'statements',
+        entitySnapshot: { ...statement },
+        fixType: 'none',
+        fixLabel: '请人工核实是否为预付款'
+      });
+    }
+
+    if (statement.confirmedAt) {
+      const confirmedDate = new Date(statement.confirmedAt);
+      const now = new Date();
+      const daysSinceConfirmed = Math.floor((now - confirmedDate) / (1000 * 60 * 60 * 24));
+
+      if (daysSinceConfirmed > 30 && paymentStatus !== '已付款') {
+        issues.push({
+          id: `payment-overdue-${statement.id}`,
+          category: CATEGORY.SETTLEMENT,
+          severity: SEVERITY.WARNING,
+          title: `对账单「${statement.artist}」确认已超过30天仍未付清`,
+          description: `对账单于 ${statement.confirmedAt.slice(0, 10)} 确认，距今已 ${daysSinceConfirmed} 天，当前付款状态为「${paymentStatus}」，待付金额 ¥${Math.max(0, totalPayable - paidAmount).toLocaleString()}。`,
+          entityId: statement.id,
+          entityType: 'statements',
+          entitySnapshot: { ...statement },
+          fixType: 'none',
+          fixLabel: '请及时跟进付款进度'
+        });
+      }
+    }
+  });
+
+  return issues;
+}
+
 function checkOrphanRecords(works, orders, inquiries, loans, inventoryTasks) {
   const issues = [];
   const workIdSet = new Set(works.map((w) => w.id));
@@ -317,6 +412,7 @@ function runAllDiagnostics(data) {
     ...checkCancelledOrderStillSold(works, orders),
     ...checkLoanReturnedNotReverted(works, loans),
     ...checkSettlementWorkInconsistent(works, orders, statements),
+    ...checkPaymentConsistency(statements),
     ...checkCustomerStatusConflict(inquiries, orders),
     ...checkOrphanRecords(works, orders, inquiries, loans, inventoryTasks)
   ];
@@ -348,6 +444,7 @@ export {
   checkCancelledOrderStillSold,
   checkLoanReturnedNotReverted,
   checkSettlementWorkInconsistent,
+  checkPaymentConsistency,
   checkCustomerStatusConflict,
   checkOrphanRecords,
   runAllDiagnostics

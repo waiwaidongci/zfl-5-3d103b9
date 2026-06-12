@@ -305,6 +305,9 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
                         {issue.entityType === 'inventoryItems' && (
                           <span>任务: {issue.entitySnapshot.taskName} · {issue.entitySnapshot.workSnapshot?.title || '未知'}</span>
                         )}
+                        {issue.entityType === 'statements' && (
+                          <span>{issue.entitySnapshot.artist} · {issue.entitySnapshot.startDate}~{issue.entitySnapshot.endDate} · 应付¥{Number(issue.entitySnapshot.totalPayable || 0).toLocaleString()} · 已付¥{Number(issue.entitySnapshot.paidAmount || 0).toLocaleString()}</span>
+                        )}
                       </div>
                     )}
                   </div>
