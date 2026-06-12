@@ -212,6 +212,53 @@ function generateFixPreview(issues, data) {
         }
         break;
       }
+      case 'resolve-inventory-discrepancy-restore': {
+        const task = data.inventoryTasks.find((t) => t.id === issue.relatedEntityId);
+        if (task) {
+          const item = task.items.find((i) => i.id === issue.entityId);
+          if (item) {
+            const currentWork = data.works.find((w) => w.id === item.workId);
+            const DISCREPANCY_FIELDS = ['exhibit', 'sale', 'price'];
+            const restorePatch = {};
+            let diffSummary = '';
+            if (currentWork) {
+              DISCREPANCY_FIELDS.forEach((field) => {
+                const snapVal = String(item.workSnapshot[field] ?? '');
+                const curVal = String(currentWork[field] ?? '');
+                if (snapVal !== curVal) {
+                  restorePatch[field] = item.workSnapshot[field];
+                  diffSummary += `${field}: ${curVal} → ${snapVal}; `;
+                }
+              });
+            }
+            if (Object.keys(restorePatch).length > 0) {
+              patches.push({
+                issueId: issue.id,
+                fixType: 'restore-work-from-snapshot',
+                fixLabel: '恢复作品快照状态',
+                entityType: 'works',
+                entityId: item.workId,
+                entityLabel: `${item.workSnapshot?.artist || ''} — ${item.workSnapshot?.title || item.id}`,
+                before: { ...restorePatch },
+                after: restorePatch,
+                description: `将作品「${item.workSnapshot?.title}」恢复为盘点快照状态：${diffSummary.trim()}`
+              });
+            }
+            patches.push({
+              issueId: issue.id,
+              fixType: 'resolve-inventory-item',
+              fixLabel: '标记差异已恢复',
+              entityType: 'inventoryItems',
+              entityId: item.id,
+              entityLabel: `${item.workSnapshot?.title || item.id} (任务: ${task.name})`,
+              before: { discrepancyResolution: '未处理' },
+              after: { discrepancyResolution: '已恢复', discrepancyNote: '通过数据健康中心自动恢复' },
+              description: `将盘点条目「${item.workSnapshot?.title || item.id}」差异标记为已恢复`
+            });
+          }
+        }
+        break;
+      }
       case 'fix-payment-status-to-partial': {
         const statement = data.statements.find((s) => s.id === issue.entityId);
         if (statement) {
@@ -317,6 +364,30 @@ function applyFixes(patches, data) {
           items: task.items.map((item) =>
             item.id === patch.entityId ? { ...item, ...patch.after, checkedAt: new Date().toISOString() } : item
           )
+        }));
+        break;
+
+      case 'restore-work-from-snapshot':
+        updatedData.works = updatedData.works.map((w) =>
+          w.id === patch.entityId ? { ...w, ...patch.after } : w
+        );
+        break;
+
+      case 'resolve-inventory-item':
+        updatedData.inventoryTasks = updatedData.inventoryTasks.map((task) => ({
+          ...task,
+          items: task.items.map((item) => {
+            if (item.id !== patch.entityId) return item;
+            return {
+              ...item,
+              discrepancy: {
+                ...item.discrepancy,
+                resolution: patch.after.discrepancyResolution,
+                resolutionNote: patch.after.discrepancyNote || '',
+                resolvedAt: new Date().toISOString()
+              }
+            };
+          })
         }));
         break;
 

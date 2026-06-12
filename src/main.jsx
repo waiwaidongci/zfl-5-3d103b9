@@ -65,6 +65,9 @@ const BALANCE_STATUS = ['待支付', '已支付', '部分支付'];
 const PAYMENT_STATUS = ['待付款', '部分付款', '已付款'];
 const INVENTORY_STATUS = ['未核对', '已核对', '异常', '缺失'];
 const INVENTORY_TASK_STATUS = ['进行中', '已完成'];
+const DISCREPANCY_RESOLUTION = ['未处理', '已恢复', '已备注', '保留异常'];
+const DISCREPANCY_FIELDS = ['exhibit', 'sale', 'price'];
+const DISCREPANCY_FIELD_LABELS = { exhibit: '展态', sale: '销售状态', price: '价格', existence: '存在性' };
 
 const seedOrders = [
   { id: 'seed-order-jqcy03', workId: 'seed-work-jqcy03', workTitle: '旧墙采样03', workArtist: '赵以南', customerName: '张经理', customerPhone: '13800008888', dealPrice: 8600, deposit: 2580, balanceStatus: '待支付', dealDate: iso(-3), note: '老客户介绍', createdAt: iso(-3), cancelledAt: null }
@@ -345,6 +348,8 @@ function App() {
   const [inventoryFilter, setInventoryFilter] = useState('全部任务');
   const [inventoryQuery, setInventoryQuery] = useState('');
   const [inventoryItemFilter, setInventoryItemFilter] = useState('全部状态');
+  const [discrepancyNoteInput, setDiscrepancyNoteInput] = useState({});
+  const [inventoryCompleteWarning, setInventoryCompleteWarning] = useState(null);
   const [showMigration, setShowMigration] = useState(false);
   const [migrationPreview, setMigrationPreview] = useState(null);
   const [migrationStep, setMigrationStep] = useState('idle');
@@ -999,7 +1004,8 @@ function App() {
       workSnapshot: JSON.parse(JSON.stringify(work)),
       status: '未核对',
       note: '',
-      checkedAt: null
+      checkedAt: null,
+      discrepancy: null
     }));
     const newTask = {
       id: crypto.randomUUID(),
@@ -1022,36 +1028,153 @@ function App() {
   function updateInventoryItem(taskId, itemId, patch) {
     setInventoryTasks(inventoryTasks.map((task) => {
       if (task.id !== taskId) return task;
-      const updatedItems = task.items.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              ...patch,
-              checkedAt: patch.status && patch.status !== '未核对'
-                ? (patch.checkedAt || new Date().toISOString())
-                : item.checkedAt
-            }
-          : item
-      );
+      const updatedItems = task.items.map((item) => {
+        if (item.id !== itemId) return item;
+        const updated = {
+          ...item,
+          ...patch,
+          checkedAt: patch.status && patch.status !== '未核对'
+            ? (patch.checkedAt || new Date().toISOString())
+            : item.checkedAt
+        };
+        if (patch.status === '异常' || patch.status === '缺失') {
+          if (!updated.discrepancy || updated.discrepancy.resolution === '未处理') {
+            const currentWork = works.find((w) => w.id === item.workId);
+            const discrepancy = computeDiscrepancy(item, currentWork);
+            updated.discrepancy = {
+              ...discrepancy,
+              resolution: '未处理',
+              resolutionNote: '',
+              resolvedAt: null
+            };
+          }
+        }
+        return updated;
+      });
       const checkedCount = updatedItems.filter((i) => i.status === '已核对').length;
       const exceptionCount = updatedItems.filter((i) => i.status === '异常').length;
       const missingCount = updatedItems.filter((i) => i.status === '缺失').length;
+      const unresolvedDiscrepancyCount = updatedItems.filter(
+        (i) => (i.status === '异常' || i.status === '缺失') && (!i.discrepancy || i.discrepancy.resolution === '未处理')
+      ).length;
       return {
         ...task,
         items: updatedItems,
         checkedCount,
         exceptionCount,
-        missingCount
+        missingCount,
+        unresolvedDiscrepancyCount
       };
     }));
   }
 
+  function computeDiscrepancy(item, currentWork) {
+    if (!currentWork) {
+      return {
+        hasDiscrepancy: true,
+        diffFields: [{ field: 'existence', snapshot: '存在', current: '已删除' }],
+        currentSnapshot: null
+      };
+    }
+    const diffs = [];
+    DISCREPANCY_FIELDS.forEach((field) => {
+      const snapVal = String(item.workSnapshot[field] ?? '');
+      const curVal = String(currentWork[field] ?? '');
+      if (snapVal !== curVal) {
+        diffs.push({ field, snapshotVal: snapVal, currentVal: curVal });
+      }
+    });
+    return {
+      hasDiscrepancy: diffs.length > 0,
+      diffFields: diffs,
+      currentSnapshot: JSON.parse(JSON.stringify(currentWork))
+    };
+  }
+
+  function resolveInventoryDiscrepancy(taskId, itemId, resolution, resolutionNote) {
+    setInventoryTasks(inventoryTasks.map((task) => {
+      if (task.id !== taskId) return task;
+      const updatedItems = task.items.map((item) => {
+        if (item.id !== itemId) return item;
+        const currentWork = works.find((w) => w.id === item.workId);
+        const discrepancy = computeDiscrepancy(item, currentWork);
+        if (resolution === '已恢复' && currentWork) {
+          const patch = {};
+          discrepancy.diffFields.forEach((d) => {
+            if (d.field !== 'existence') {
+              patch[d.field] = item.workSnapshot[d.field];
+            }
+          });
+          if (Object.keys(patch).length > 0) {
+            updateWork(item.workId, patch);
+          }
+        }
+        return {
+          ...item,
+          discrepancy: {
+            ...discrepancy,
+            resolution,
+            resolutionNote: resolutionNote || '',
+            resolvedAt: new Date().toISOString()
+          }
+        };
+      });
+      const unresolvedDiscrepancyCount = updatedItems.filter(
+        (i) => (i.status === '异常' || i.status === '缺失') && (!i.discrepancy || i.discrepancy.resolution === '未处理')
+      ).length;
+      return { ...task, items: updatedItems, unresolvedDiscrepancyCount };
+    }));
+  }
+
+  function detectDiscrepanciesForTask(taskId) {
+    setInventoryTasks(inventoryTasks.map((task) => {
+      if (task.id !== taskId) return task;
+      const updatedItems = task.items.map((item) => {
+        if (item.status !== '异常' && item.status !== '缺失') return item;
+        if (item.discrepancy && item.discrepancy.resolution !== '未处理') return item;
+        const currentWork = works.find((w) => w.id === item.workId);
+        const discrepancy = computeDiscrepancy(item, currentWork);
+        return {
+          ...item,
+          discrepancy: {
+            ...discrepancy,
+            resolution: '未处理',
+            resolutionNote: item.discrepancy?.resolutionNote || '',
+            resolvedAt: null
+          }
+        };
+      });
+      const unresolvedDiscrepancyCount = updatedItems.filter(
+        (i) => (i.status === '异常' || i.status === '缺失') && (!i.discrepancy || i.discrepancy.resolution === '未处理')
+      ).length;
+      return { ...task, items: updatedItems, unresolvedDiscrepancyCount };
+    }));
+  }
+
   function completeInventoryTask(taskId) {
-    setInventoryTasks(inventoryTasks.map((task) =>
-      task.id === taskId
-        ? { ...task, status: '已完成', completedAt: new Date().toISOString() }
-        : task
+    const task = inventoryTasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const unresolvedItems = task.items.filter(
+      (i) => (i.status === '异常' || i.status === '缺失') && (!i.discrepancy || i.discrepancy.resolution === '未处理')
+    );
+    if (unresolvedItems.length > 0) {
+      setInventoryCompleteWarning({ taskId, unresolvedItems });
+      return;
+    }
+    setInventoryTasks(inventoryTasks.map((t) =>
+      t.id === taskId
+        ? { ...t, status: '已完成', completedAt: new Date().toISOString(), unresolvedDiscrepancyCount: 0 }
+        : t
     ));
+  }
+
+  function forceCompleteInventoryTask(taskId) {
+    setInventoryTasks(inventoryTasks.map((t) =>
+      t.id === taskId
+        ? { ...t, status: '已完成', completedAt: new Date().toISOString() }
+        : t
+    ));
+    setInventoryCompleteWarning(null);
   }
 
   function reopenInventoryTask(taskId) {
@@ -1198,7 +1321,7 @@ function App() {
     orders: { id: '', workId: '', workTitle: '', workArtist: '', customerName: '', customerPhone: '', dealPrice: 0, deposit: 0, balanceStatus: '待支付', dealDate: '', note: '', createdAt: '', cancelledAt: null },
     statements: { id: '', artist: '', startDate: '', endDate: '', items: [], totalDealPrice: 0, totalCommission: 0, totalPayable: 0, commissionRate: 35, confirmed: false, confirmedAt: null, paymentStatus: '待付款', paymentDate: null, paymentNote: '', paidAmount: 0, createdAt: '' },
     loans: { id: '', workId: '', workTitle: '', workArtist: '', borrower: '', loanDate: '', expectedReturnDate: '', contactPerson: '', notes: '', returnedAt: null, createdAt: '' },
-    inventoryTasks: { id: '', name: '', note: '', status: '进行中', items: [], totalCount: 0, checkedCount: 0, exceptionCount: 0, missingCount: 0, createdAt: '', completedAt: null }
+    inventoryTasks: { id: '', name: '', note: '', status: '进行中', items: [], totalCount: 0, checkedCount: 0, exceptionCount: 0, missingCount: 0, unresolvedDiscrepancyCount: 0, createdAt: '', completedAt: null }
   };
 
   function normalizeRecord(entityType, record) {
@@ -2434,8 +2557,15 @@ function App() {
                 <select value={inventoryItemFilter} onChange={(e) => setInventoryItemFilter(e.target.value)}>
                   <option value="全部状态">全部状态</option>
                   {INVENTORY_STATUS.map((s) => <option key={s}>{s}</option>)}
+                  <option value="未处理差异">未处理差异</option>
+                  <option value="已处理差异">已处理差异</option>
                 </select>
               </label>
+              {(selectedInventoryTask.exceptionCount > 0 || selectedInventoryTask.missingCount > 0) && selectedInventoryTask.status === '进行中' && (
+                <button className="ghost" onClick={() => detectDiscrepanciesForTask(selectedInventoryTask.id)}>
+                  <Eye size={14} /> 检测差异
+                </button>
+              )}
               {selectedInventoryTask.status === '进行中' ? (
                 <button onClick={() => completeInventoryTask(selectedInventoryTask.id)}>
                   <CheckSquare size={14} /> 完成盘点
@@ -2485,6 +2615,17 @@ function App() {
                 <strong className="stat-value" style={{ color: '#991b1b' }}>{selectedInventoryTask.missingCount}件</strong>
               </div>
             </div>
+            {(selectedInventoryTask.unresolvedDiscrepancyCount || 0) > 0 && (
+              <div className="inventory-stat-card">
+                <div className="stat-icon" style={{ background: '#fce7f3', color: '#9d174d' }}>
+                  <AlertCircle size={20} />
+                </div>
+                <div className="stat-info">
+                  <span className="stat-label">未处理差异</span>
+                  <strong className="stat-value" style={{ color: '#9d174d' }}>{selectedInventoryTask.unresolvedDiscrepancyCount}件</strong>
+                </div>
+              </div>
+            )}
           </div>
 
           {(selectedInventoryTask.exceptionCount > 0 || selectedInventoryTask.missingCount > 0) && (
@@ -2498,6 +2639,14 @@ function App() {
                     <span className="alert-artist">{item.workSnapshot.artist}</span>
                     <span className="alert-exhibit">原状态：{item.workSnapshot.exhibit}</span>
                     {item.note && <span className="alert-note">备注：{item.note}</span>}
+                    {item.discrepancy && item.discrepancy.resolution !== '未处理' && (
+                      <span className={`alert-resolution resolution-${item.discrepancy.resolution}`}>
+                        {item.discrepancy.resolution}
+                      </span>
+                    )}
+                    {item.discrepancy && item.discrepancy.resolution === '未处理' && (
+                      <span className="alert-resolution resolution-unresolved">未处理</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -2524,42 +2673,138 @@ function App() {
             <p className="empty-tip">没有匹配的作品</p>
           ) : (
             <div className="inventory-items">
-              {filteredInventoryItems.map((item) => (
-                <div key={item.id} className={`inventory-item inventory-status-${item.status}`}>
-                  <div className="inventory-item-head">
-                    <strong>{item.workSnapshot.title}</strong>
-                    <select
-                      value={item.status}
-                      onChange={(e) => updateInventoryItem(selectedInventoryTask.id, item.id, { status: e.target.value })}
-                      disabled={selectedInventoryTask.status === '已完成'}
-                      className={`status-select status-inv-${item.status}`}
-                    >
-                      {INVENTORY_STATUS.map((s) => <option key={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <span className="inventory-item-artist">{item.workSnapshot.artist} · ¥{Number(item.workSnapshot.price).toLocaleString()}</span>
-                  <p className="inventory-item-meta">
-                    {item.workSnapshot.inDate}入库 · {item.workSnapshot.exhibit} · {item.workSnapshot.sale}
-                  </p>
-                  {item.note && <p className="inventory-item-note">备注：{item.note}</p>}
-                  {selectedInventoryTask.status === '进行中' && (
-                    <div className="inventory-item-actions">
-                      <input
-                        type="text"
-                        placeholder="添加盘点备注..."
-                        className="inventory-note-input"
-                        value={item.note}
-                        onChange={(e) => updateInventoryItem(selectedInventoryTask.id, item.id, { note: e.target.value })}
-                      />
+              {filteredInventoryItems.map((item) => {
+                const currentWork = works.find((w) => w.id === item.workId);
+                const showDiscrepancy = (item.status === '异常' || item.status === '缺失') && item.discrepancy;
+                const isResolved = item.discrepancy && item.discrepancy.resolution !== '未处理';
+                return (
+                  <div key={item.id} className={`inventory-item inventory-status-${item.status}`}>
+                    <div className="inventory-item-head">
+                      <strong>{item.workSnapshot.title}</strong>
+                      <select
+                        value={item.status}
+                        onChange={(e) => updateInventoryItem(selectedInventoryTask.id, item.id, { status: e.target.value })}
+                        disabled={selectedInventoryTask.status === '已完成'}
+                        className={`status-select status-inv-${item.status}`}
+                      >
+                        {INVENTORY_STATUS.map((s) => <option key={s}>{s}</option>)}
+                      </select>
                     </div>
-                  )}
-                  {item.checkedAt && (
-                    <span className="inventory-checked-time">
-                      {item.status === '未核对' ? '' : `于 ${new Date(item.checkedAt).toLocaleString('zh-CN')}`}
-                    </span>
-                  )}
-                </div>
-              ))}
+                    <span className="inventory-item-artist">{item.workSnapshot.artist} · ¥{Number(item.workSnapshot.price).toLocaleString()}</span>
+                    <p className="inventory-item-meta">
+                      {item.workSnapshot.inDate}入库 · {item.workSnapshot.exhibit} · {item.workSnapshot.sale}
+                    </p>
+                    {item.note && <p className="inventory-item-note">备注：{item.note}</p>}
+                    {selectedInventoryTask.status === '进行中' && (
+                      <div className="inventory-item-actions">
+                        <input
+                          type="text"
+                          placeholder="添加盘点备注..."
+                          className="inventory-note-input"
+                          value={item.note}
+                          onChange={(e) => updateInventoryItem(selectedInventoryTask.id, item.id, { note: e.target.value })}
+                        />
+                      </div>
+                    )}
+                    {showDiscrepancy && (
+                      <div className={`discrepancy-detail ${isResolved ? 'discrepancy-resolved' : 'discrepancy-unresolved'}`}>
+                        <div className="discrepancy-header">
+                          <AlertTriangle size={14} />
+                          <strong>{isResolved ? '差异已处理' : '发现差异'}</strong>
+                          {item.discrepancy.resolution !== '未处理' && (
+                            <span className={`discrepancy-resolution-tag resolution-${item.discrepancy.resolution}`}>
+                              {item.discrepancy.resolution}
+                            </span>
+                          )}
+                        </div>
+                        {item.discrepancy.diffFields.length > 0 ? (
+                          <div className="discrepancy-diff-list">
+                            {item.discrepancy.diffFields.map((d, idx) => (
+                              <div key={idx} className="discrepancy-diff-row">
+                                <span className="diff-field-label">{DISCREPANCY_FIELD_LABELS[d.field] || d.field}</span>
+                                <span className="diff-snapshot">{d.field === 'existence' ? d.snapshot : d.snapshotVal}</span>
+                                <span className="diff-arrow">→</span>
+                                <span className="diff-current">{d.field === 'existence' ? d.current : d.currentVal}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="discrepancy-no-diff">
+                            <Info size={12} />
+                            <span>当前值与快照一致，但已标记为{item.status}</span>
+                          </div>
+                        )}
+                        {!currentWork && (
+                          <div className="discrepancy-missing-work">
+                            <XCircle size={12} />
+                            <span>对应作品已从系统中删除</span>
+                          </div>
+                        )}
+                        {!isResolved && selectedInventoryTask.status === '进行中' && (
+                          <div className="discrepancy-resolution-area">
+                            <div className="discrepancy-note-row">
+                              <input
+                                type="text"
+                                placeholder="处理备注（选填）..."
+                                className="discrepancy-note-input"
+                                value={discrepancyNoteInput[item.id] || ''}
+                                onChange={(e) => setDiscrepancyNoteInput({ ...discrepancyNoteInput, [item.id]: e.target.value })}
+                              />
+                            </div>
+                            <div className="discrepancy-actions">
+                              {item.discrepancy.diffFields.some((d) => d.field !== 'existence') && currentWork && (
+                                <button
+                                  className="discrepancy-btn btn-restore"
+                                  onClick={() => {
+                                    resolveInventoryDiscrepancy(selectedInventoryTask.id, item.id, '已恢复', discrepancyNoteInput[item.id] || '');
+                                    setDiscrepancyNoteInput({ ...discrepancyNoteInput, [item.id]: '' });
+                                  }}
+                                >
+                                  <RotateCcw size={12} /> 恢复展态
+                                </button>
+                              )}
+                              <button
+                                className="discrepancy-btn btn-note"
+                                onClick={() => {
+                                  resolveInventoryDiscrepancy(selectedInventoryTask.id, item.id, '已备注', discrepancyNoteInput[item.id] || '已备注');
+                                  setDiscrepancyNoteInput({ ...discrepancyNoteInput, [item.id]: '' });
+                                }}
+                              >
+                                <MessageSquare size={12} /> 补充备注
+                              </button>
+                              <button
+                                className="discrepancy-btn btn-keep"
+                                onClick={() => {
+                                  resolveInventoryDiscrepancy(selectedInventoryTask.id, item.id, '保留异常', discrepancyNoteInput[item.id] || '保留异常');
+                                  setDiscrepancyNoteInput({ ...discrepancyNoteInput, [item.id]: '' });
+                                }}
+                              >
+                                <AlertTriangle size={12} /> 保留异常
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {isResolved && item.discrepancy.resolutionNote && (
+                          <div className="discrepancy-resolution-note">
+                            <MessageCircle size={12} />
+                            <span>{item.discrepancy.resolutionNote}</span>
+                          </div>
+                        )}
+                        {isResolved && item.discrepancy.resolvedAt && (
+                          <div className="discrepancy-resolution-time">
+                            于 {new Date(item.discrepancy.resolvedAt).toLocaleString('zh-CN')} 处理
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {item.checkedAt && (
+                      <span className="inventory-checked-time">
+                        {item.status === '未核对' ? '' : `于 ${new Date(item.checkedAt).toLocaleString('zh-CN')}`}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
@@ -2795,6 +3040,40 @@ function App() {
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {inventoryCompleteWarning && (
+        <section className="panel inventory-warning-panel">
+          <div className="inventory-warning-header">
+            <AlertTriangle size={20} />
+            <h2>存在未处理的盘点差异</h2>
+          </div>
+          <p className="inventory-warning-desc">
+            以下 {inventoryCompleteWarning.unresolvedItems.length} 个条目标记为异常或缺失但差异未处理，建议先处理差异再完成任务。
+          </p>
+          <div className="inventory-warning-list">
+            {inventoryCompleteWarning.unresolvedItems.map((item) => (
+              <div key={item.id} className="inventory-warning-item">
+                <span className={`alert-tag alert-${item.status}`}>{item.status}</span>
+                <strong>{item.workSnapshot.title}</strong>
+                <span className="alert-artist">{item.workSnapshot.artist}</span>
+                {item.discrepancy && item.discrepancy.diffFields.length > 0 && (
+                  <span className="warning-diff-summary">
+                    差异：{item.discrepancy.diffFields.map((d) => DISCREPANCY_FIELD_LABELS[d.field] || d.field).join('、')}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="inventory-warning-actions">
+            <button className="ghost" onClick={() => setInventoryCompleteWarning(null)}>
+              返回处理差异
+            </button>
+            <button className="outline warning-confirm-btn" onClick={() => forceCompleteInventoryTask(inventoryCompleteWarning.taskId)}>
+              <AlertTriangle size={14} /> 仍然完成（差异未处理）
+            </button>
+          </div>
         </section>
       )}
 

@@ -10,7 +10,8 @@ const CATEGORY = {
   LOAN_RETURN: 'loan-return',
   SETTLEMENT: 'settlement',
   CUSTOMER: 'customer',
-  ORPHAN: 'orphan'
+  ORPHAN: 'orphan',
+  INVENTORY_DISCREPANCY: 'inventory-discrepancy'
 };
 
 const CATEGORY_LABELS = {
@@ -19,7 +20,8 @@ const CATEGORY_LABELS = {
   [CATEGORY.LOAN_RETURN]: '借展归还',
   [CATEGORY.SETTLEMENT]: '结算对账',
   [CATEGORY.CUSTOMER]: '客户档案',
-  [CATEGORY.ORPHAN]: '孤儿记录'
+  [CATEGORY.ORPHAN]: '孤儿记录',
+  [CATEGORY.INVENTORY_DISCREPANCY]: '盘点差异'
 };
 
 function checkSoldWithoutOrder(works, orders) {
@@ -419,6 +421,56 @@ function checkOrphanRecords(works, orders, inquiries, loans, inventoryTasks) {
   return issues;
 }
 
+function checkInventoryDiscrepancies(inventoryTasks, works) {
+  const issues = [];
+  const FIELD_LABELS = { exhibit: '展态', sale: '销售状态', price: '价格', existence: '存在性' };
+  const DISCREPANCY_FIELDS = ['exhibit', 'sale', 'price'];
+
+  inventoryTasks.forEach((task) => {
+    if (task.status !== '进行中') return;
+    task.items.forEach((item) => {
+      if (item.status !== '异常' && item.status !== '缺失') return;
+      if (item.discrepancy && item.discrepancy.resolution !== '未处理') return;
+
+      const currentWork = works.find((w) => w.id === item.workId);
+      let diffFields = [];
+
+      if (!currentWork) {
+        diffFields = [{ field: 'existence', snapshot: '存在', current: '已删除' }];
+      } else {
+        DISCREPANCY_FIELDS.forEach((field) => {
+          const snapVal = String(item.workSnapshot[field] ?? '');
+          const curVal = String(currentWork[field] ?? '');
+          if (snapVal !== curVal) {
+            diffFields.push({ field, snapshotVal: snapVal, currentVal: curVal });
+          }
+        });
+      }
+
+      if (diffFields.length === 0) return;
+
+      const diffSummary = diffFields.map((d) => FIELD_LABELS[d.field] || d.field).join('、');
+      const severity = diffFields.some((d) => d.field === 'existence') ? SEVERITY.CRITICAL : SEVERITY.WARNING;
+
+      issues.push({
+        id: `inventory-discrepancy-${task.id}-${item.id}`,
+        category: CATEGORY.INVENTORY_DISCREPANCY,
+        severity,
+        title: `盘点任务「${task.name}」中「${item.workSnapshot.title}」存在未处理差异`,
+        description: `作品「${item.workSnapshot.artist} — ${item.workSnapshot.title}」标记为${item.status}，差异字段：${diffSummary}。当前值与盘点快照不一致，需决定恢复、备注或保留异常。`,
+        entityId: item.id,
+        relatedEntityId: task.id,
+        entityType: 'inventoryItems',
+        entitySnapshot: { taskName: task.name, ...item },
+        fixType: 'resolve-inventory-discrepancy-restore',
+        fixLabel: '恢复快照状态'
+      });
+    });
+  });
+
+  return issues;
+}
+
 function runAllDiagnostics(data) {
   const { works, orders, inquiries, loans, statements, inventoryTasks } = data;
 
@@ -429,7 +481,8 @@ function runAllDiagnostics(data) {
     ...checkSettlementWorkInconsistent(works, orders, statements),
     ...checkPaymentConsistency(statements),
     ...checkCustomerStatusConflict(inquiries, orders),
-    ...checkOrphanRecords(works, orders, inquiries, loans, inventoryTasks)
+    ...checkOrphanRecords(works, orders, inquiries, loans, inventoryTasks),
+    ...checkInventoryDiscrepancies(inventoryTasks, works)
   ];
 
   const byCategory = {};
@@ -462,5 +515,6 @@ export {
   checkPaymentConsistency,
   checkCustomerStatusConflict,
   checkOrphanRecords,
+  checkInventoryDiscrepancies,
   runAllDiagnostics
 };
