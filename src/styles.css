@@ -197,10 +197,32 @@ select:disabled { background: #f5f5f2; color: #67655e; cursor: not-allowed; }
 .batch-section-title.new-artist-title { color: #1d4ed8; }
 
 .batch-mapping-grid { display: flex; flex-direction: column; gap: 8px; }
-.batch-mapping-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #fbfbf8; border: 1px solid #e5e2dc; border-radius: 8px; }
-.batch-mapping-source { min-width: 120px; font-weight: 500; color: #242424; }
-.batch-mapping-arrow { color: #8a877f; flex-shrink: 0; }
+.batch-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.batch-section-actions { display: flex; gap: 8px; }
+.batch-section-desc .inline-icon.success { color: #15803d; }
+
+.batch-mapping-warning { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b; margin-bottom: 12px; }
+.batch-mapping-warning svg { flex-shrink: 0; margin-top: 2px; }
+
+.batch-mapping-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #fbfbf8; border: 1px solid #e5e2dc; border-radius: 8px; transition: all 0.2s; }
+.batch-mapping-row.required { border-left: 3px solid #2563eb; }
+.batch-mapping-row.mapped { background: #f0fdf4; border-color: #bbf7d0; }
+.batch-mapping-row.unmapped { background: #fef2f2; border-color: #fecaca; }
+
+.batch-mapping-source-wrapper { display: flex; align-items: center; gap: 8px; min-width: 180px; }
+.batch-mapping-source { font-weight: 500; color: #242424; }
+.batch-mapping-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+.batch-mapping-badge.auto { background: #dcfce7; color: #15803d; }
+.batch-mapping-badge.required { background: #dbeafe; color: #1d4ed8; }
+
+.batch-mapping-arrow { color: #8a877f; flex-shrink: 0; transition: all 0.2s; }
+.batch-mapping-arrow.active { color: #15803d; }
+
 .batch-mapping-target { flex: 1; max-width: 300px; }
+.batch-mapping-target.mapped { border-color: #86efac; }
+.batch-mapping-target.unmapped { border-color: #fca5a5; }
+
+.inline-icon.success { color: #15803d; }
 
 .batch-new-artists { display: flex; flex-wrap: wrap; gap: 8px; }
 .batch-new-artist-item { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; background: #f0f9ff; border: 1px solid #93c5fd; color: #1d4ed8; border-radius: 8px; font-size: 13px; font-weight: 500; }

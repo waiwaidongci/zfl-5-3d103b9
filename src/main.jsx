@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, ArrowRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, ListChecks, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RotateCcw, Search, Settings, Tag, TrendingUp, Upload, User, UserPlus, XCircle, ClipboardList, Eye, AlertTriangle, Package, Shield } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ArrowRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, ListChecks, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Tag, TrendingUp, Upload, User, UserPlus, XCircle, ClipboardList, Eye, AlertTriangle, Package, Shield } from 'lucide-react';
 import './styles.css';
 import CustomerList from './CustomerList.jsx';
 import CustomerDetail from './CustomerDetail.jsx';
@@ -61,6 +61,45 @@ const INQUIRY_STATUS = ['待跟进', '跟进中', '已成交', '已放弃'];
 const VALID_EXHIBIT = ['展出中', '库房', '借展', '退回'];
 const VALID_SALE = ['待售', '已预订', '已售'];
 const CSV_COLUMNS = ['艺术家', '作品名', '价格', '入库日期', '展态', '销售状态'];
+const CSV_COLUMN_ALIASES = {
+  '艺术家': ['艺术家', '作者', '画家', '创作者', 'artist', 'Artist', 'ARTIST', '艺术家名称', '艺术家姓名'],
+  '作品名': ['作品名', '作品名称', '标题', '名称', 'title', 'Title', 'TITLE', '作品标题', '画作名称'],
+  '价格': ['价格', '售价', '定价', 'price', 'Price', 'PRICE', '寄售价格', '市场价', '金额'],
+  '入库日期': ['入库日期', '日期', '时间', 'date', 'Date', 'DATE', '入仓日期', '到店日期', '创作日期'],
+  '展态': ['展态', '状态', '展览状态', 'exhibit', 'Exhibit', 'EXHIBIT', '位置', '存放位置'],
+  '销售状态': ['销售状态', '销售', '出售状态', 'sale', 'Sale', 'SALE', '售卖状态', '是否可售']
+};
+const normalizeHeader = (header) => {
+  const trimmed = header.trim().toLowerCase();
+  for (const [standardColumn, aliases] of Object.entries(CSV_COLUMN_ALIASES)) {
+    for (const alias of aliases) {
+      if (trimmed === alias.toLowerCase()) {
+        return standardColumn;
+      }
+    }
+  }
+  return null;
+};
+const generateDefaultMapping = (detectedColumns) => {
+  const mapping = {};
+  const usedTargets = new Set();
+  detectedColumns.forEach((col) => {
+    const normalized = normalizeHeader(col);
+    if (normalized && !usedTargets.has(normalized)) {
+      mapping[col] = normalized;
+      usedTargets.add(normalized);
+    }
+  });
+  return mapping;
+};
+const getMappedColumnStatus = (detectedColumns, mapping) => {
+  return detectedColumns.map((col) => ({
+    source: col,
+    target: mapping[col] || null,
+    autoMatched: mapping[col] && normalizeHeader(col) === mapping[col],
+    required: ['艺术家', '作品名', '价格'].includes(mapping[col])
+  }));
+};
 const BALANCE_STATUS = ['待支付', '已支付', '部分支付'];
 const PAYMENT_STATUS = ['待付款', '部分付款', '已付款'];
 const INVENTORY_STATUS = ['未核对', '已核对', '异常', '缺失'];
@@ -163,7 +202,7 @@ function repairSplitThousandSeparator(cells, expectedFields, priceIndex) {
 
 function parseCSV(text, customMapping = {}) {
   const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-  if (lines.length === 0) return { header: null, rows: [] };
+  if (lines.length === 0) return { header: null, rows: [], detectedColumns: [] };
 
   const detectDelimiter = (line) => {
     const candidates = [',', '\t', ';', '，'];
@@ -183,28 +222,35 @@ function parseCSV(text, customMapping = {}) {
   const parseLine = (line) => parseCSVLine(line, delimiter);
 
   const firstLine = parseLine(lines[0]);
-  const hasHeader = firstLine.some(cell => CSV_COLUMNS.includes(cell));
+  const hasHeader = firstLine.some(cell => {
+    const normalized = normalizeHeader(cell.trim());
+    return normalized !== null || CSV_COLUMNS.includes(cell.trim());
+  });
 
   let headerMap = null;
   let dataStart = 0;
   const rawHeader = hasHeader ? firstLine : null;
+  const detectedColumns = hasHeader ? firstLine : firstLine.map((_, i) => `列${i + 1}`);
+  const autoMapping = hasHeader ? generateDefaultMapping(firstLine) : {};
+  const activeMapping = Object.keys(customMapping).length > 0 ? customMapping : autoMapping;
 
-  if (Object.keys(customMapping).length > 0) {
+  if (Object.keys(activeMapping).length > 0) {
     headerMap = {};
-    const sourceHeader = hasHeader ? firstLine : CSV_COLUMNS.map((_, i) => `列${i + 1}`);
-    sourceHeader.forEach((cell, idx) => {
+    detectedColumns.forEach((cell, idx) => {
       const normalized = cell.trim();
-      if (customMapping[normalized] && CSV_COLUMNS.includes(customMapping[normalized])) {
-        headerMap[customMapping[normalized]] = idx;
+      if (activeMapping[normalized] && CSV_COLUMNS.includes(activeMapping[normalized])) {
+        headerMap[activeMapping[normalized]] = idx;
       }
     });
     dataStart = hasHeader ? 1 : 0;
   } else if (hasHeader) {
     headerMap = {};
     firstLine.forEach((cell, idx) => {
-      const normalized = cell.trim();
-      if (CSV_COLUMNS.includes(normalized)) {
-        headerMap[normalized] = idx;
+      const trimmed = cell.trim();
+      const normalized = normalizeHeader(trimmed);
+      const target = normalized || (CSV_COLUMNS.includes(trimmed) ? trimmed : null);
+      if (target) {
+        headerMap[target] = idx;
       }
     });
     dataStart = 1;
@@ -230,7 +276,22 @@ function parseCSV(text, customMapping = {}) {
     rows.push(row);
   }
 
-  return { header: rawHeader, rows, headerMap, detectedColumns: hasHeader ? firstLine : [] };
+  const mappingStatus = getMappedColumnStatus(detectedColumns, activeMapping);
+  const missingRequired = ['艺术家', '作品名', '价格'].filter(req => 
+    !mappingStatus.some(s => s.target === req)
+  );
+
+  return { 
+    header: rawHeader, 
+    rows, 
+    headerMap, 
+    detectedColumns,
+    autoMapping,
+    activeMapping,
+    mappingStatus,
+    missingRequired,
+    hasHeader
+  };
 }
 
 function validateRow(row, existingTitles, existingArtists, batchTitles, autoCreateArtists = false) {
@@ -1259,13 +1320,19 @@ function App() {
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [statements, statementFilter, statementPaymentFilter]);
 
-  function previewBatchImport() {
+  function previewBatchImport(useAutoMapping = false) {
     if (!batchCsvText.trim()) {
       setBatchPreview(null);
       return;
     }
 
-    const parsed = parseCSV(batchCsvText, columnMapping);
+    const mappingToUse = useAutoMapping ? {} : columnMapping;
+    const parsed = parseCSV(batchCsvText, mappingToUse);
+    
+    if (useAutoMapping || Object.keys(columnMapping).length === 0) {
+      setColumnMapping(parsed.activeMapping);
+    }
+
     const existingTitles = new Set(works.map((w) => w.title));
     const existingArtists = new Set(artists.map((a) => a.name));
     const batchTitles = new Set();
@@ -1320,9 +1387,99 @@ function App() {
       totalRows: parsed.rows.length,
       header: parsed.header,
       headerMap: parsed.headerMap,
-      detectedColumns: parsed.detectedColumns
+      detectedColumns: parsed.detectedColumns,
+      mappingStatus: parsed.mappingStatus,
+      missingRequired: parsed.missingRequired,
+      autoMapping: parsed.autoMapping,
+      activeMapping: parsed.activeMapping,
+      hasHeader: parsed.hasHeader
     });
     setImportStep('mapping');
+  }
+
+  function handleMappingChange(sourceColumn, targetColumn) {
+    const newMapping = { ...columnMapping };
+    if (targetColumn) {
+      Object.keys(newMapping).forEach(key => {
+        if (newMapping[key] === targetColumn && key !== sourceColumn) {
+          delete newMapping[key];
+        }
+      });
+      newMapping[sourceColumn] = targetColumn;
+    } else {
+      delete newMapping[sourceColumn];
+    }
+    setColumnMapping(newMapping);
+    
+    if (batchPreview) {
+      const parsed = parseCSV(batchCsvText, newMapping);
+      const existingTitles = new Set(works.map((w) => w.title));
+      const existingArtists = new Set(artists.map((a) => a.name));
+      const batchTitles = new Set();
+      const newArtistNames = new Set();
+      const validRows = [];
+      const skippedRows = [];
+      const warningRows = [];
+      const errorRows = [];
+
+      parsed.rows.forEach((row) => {
+        const result = validateRow(row, existingTitles, existingArtists, batchTitles, autoCreateArtists);
+        if (result.valid) {
+          batchTitles.add(result.cleaned.title);
+          const rowData = { 
+            ...row, 
+            cleaned: result.cleaned, 
+            warnings: result.warnings || [],
+            info: result.info || [],
+            artistStatus: result.artistStatus
+          };
+          validRows.push(rowData);
+          if (result.artistStatus === 'new') {
+            newArtistNames.add(result.cleaned.artist);
+          }
+          if ((result.warnings && result.warnings.length > 0) || (result.info && result.info.length > 0)) {
+            warningRows.push(rowData);
+          }
+        } else {
+          const hasArtistError = result.errors.some(e => e.includes('未在系统中登记'));
+          if (hasArtistError && !autoCreateArtists) {
+            skippedRows.push({ ...row, errors: result.errors, skipReason: '艺术家未登记' });
+          } else {
+            errorRows.push({ ...row, errors: result.errors });
+          }
+        }
+      });
+
+      const newArtists = Array.from(newArtistNames).map(name => ({
+        id: crypto.randomUUID(),
+        name,
+        phone: '',
+        style: '',
+        note: '批量导入自动创建'
+      }));
+
+      setBatchPreview({
+        ...batchPreview,
+        validRows,
+        errorRows,
+        skippedRows,
+        warningRows,
+        newArtists,
+        totalRows: parsed.rows.length,
+        headerMap: parsed.headerMap,
+        mappingStatus: parsed.mappingStatus,
+        missingRequired: parsed.missingRequired,
+        activeMapping: parsed.activeMapping
+      });
+    }
+  }
+
+  function resetMapping() {
+    if (batchPreview && batchPreview.detectedColumns) {
+      const defaultMapping = generateDefaultMapping(batchPreview.detectedColumns);
+      setColumnMapping(defaultMapping);
+      previewBatchImport(true);
+    }
   }
 
   function confirmBatchImport() {
@@ -1852,36 +2009,84 @@ function App() {
 
                 {batchPreview.detectedColumns && batchPreview.detectedColumns.length > 0 && (
                   <div className="batch-section">
-                    <h3 className="batch-section-title"><ArrowLeftRight size={16} /> 列映射配置</h3>
-                    <p className="batch-section-desc">请将CSV列映射到对应的系统字段</p>
+                    <div className="batch-section-header">
+                      <h3 className="batch-section-title"><ArrowLeftRight size={16} /> 列映射配置</h3>
+                      <div className="batch-section-actions">
+                        <button type="button" className="ghost small" onClick={resetMapping}>
+                          <RefreshCw size={14} /> 重置映射
+                        </button>
+                      </div>
+                    </div>
+                    {batchPreview.hasHeader ? (
+                      <p className="batch-section-desc">
+                        <CheckCircle2 size={14} className="inline-icon success" /> 已自动识别CSV表头，以下是智能匹配结果，可手动调整
+                      </p>
+                    ) : (
+                      <p className="batch-section-desc">
+                        <Info size={14} className="inline-icon" /> 未检测到标准表头，请手动为每列选择对应的系统字段
+                      </p>
+                    )}
+                    {batchPreview.missingRequired && batchPreview.missingRequired.length > 0 && (
+                      <div className="batch-mapping-warning">
+                        <AlertCircle size={16} />
+                        <span>缺少必填字段映射：{batchPreview.missingRequired.join('、')}</span>
+                      </div>
+                    )}
                     <div className="batch-mapping-grid">
-                      {batchPreview.detectedColumns.map((col, idx) => {
-                        const currentMapping = columnMapping[col] || (CSV_COLUMNS.includes(col) ? col : '');
-                        return (
-                          <div key={idx} className="batch-mapping-row">
-                            <span className="batch-mapping-source">{col}</span>
-                            <ArrowRight size={16} className="batch-mapping-arrow" />
+                      {batchPreview.mappingStatus && batchPreview.mappingStatus.length > 0 ? (
+                        batchPreview.mappingStatus.map((status, idx) => (
+                          <div key={idx} className={`batch-mapping-row ${status.required ? 'required' : ''} ${status.target ? 'mapped' : 'unmapped'}`}>
+                            <div className="batch-mapping-source-wrapper">
+                              <span className="batch-mapping-source">{status.source}</span>
+                              {status.autoMatched && (
+                                <span className="batch-mapping-badge auto"><CheckCircle2 size={12} /> 自动匹配</span>
+                              )}
+                              {status.required && (
+                                <span className="batch-mapping-badge required">必填</span>
+                              )}
+                            </div>
+                            <ArrowRight size={16} className={`batch-mapping-arrow ${status.target ? 'active' : ''}`} />
                             <select
-                              className="batch-mapping-target"
-                              value={currentMapping}
-                              onChange={(e) => {
-                                const newMapping = { ...columnMapping };
-                                if (e.target.value) {
-                                  newMapping[col] = e.target.value;
-                                } else {
-                                  delete newMapping[col];
-                                }
-                                setColumnMapping(newMapping);
-                              }}
+                              className={`batch-mapping-target ${status.target ? 'mapped' : 'unmapped'}`}
+                              value={status.target || ''}
+                              onChange={(e) => handleMappingChange(status.source, e.target.value)}
                             >
                               <option value="">-- 不导入 --</option>
-                              {CSV_COLUMNS.map((targetCol) => (
-                                <option key={targetCol} value={targetCol}>{targetCol}</option>
-                              ))}
+                              {CSV_COLUMNS.map((targetCol) => {
+                                const isUsed = batchPreview.mappingStatus.some(
+                                  s => s.target === targetCol && s.source !== status.source
+                                );
+                                return (
+                                  <option key={targetCol} value={targetCol} disabled={isUsed}>
+                                    {targetCol}{isUsed ? ' (已使用)' : ''}
+                                  </option>
+                                );
+                              })}
                             </select>
                           </div>
-                        );
-                      })}
+                        ))
+                      ) : (
+                        batchPreview.detectedColumns.map((col, idx) => {
+                          const currentMapping = columnMapping[col] || (CSV_COLUMNS.includes(col) ? col : '');
+                          const isRequired = ['艺术家', '作品名', '价格'].includes(currentMapping);
+                          return (
+                            <div key={idx} className={`batch-mapping-row ${isRequired ? 'required' : ''} ${currentMapping ? 'mapped' : 'unmapped'}`}>
+                              <span className="batch-mapping-source">{col}</span>
+                              <ArrowRight size={16} className="batch-mapping-arrow" />
+                              <select
+                                className="batch-mapping-target"
+                                value={currentMapping}
+                                onChange={(e) => handleMappingChange(col, e.target.value)}
+                              >
+                                <option value="">-- 不导入 --</option>
+                                {CSV_COLUMNS.map((targetCol) => (
+                                  <option key={targetCol} value={targetCol}>{targetCol}</option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 )}
@@ -2004,20 +2209,22 @@ function App() {
 
                 <div className="form-actions">
                   <button type="button" className="ghost" onClick={() => setImportStep('input')}>返回</button>
-                  {Object.keys(columnMapping).length > 0 && (
-                    <button type="button" onClick={previewBatchImport}>
-                      重新映射解析
-                    </button>
-                  )}
-                  {batchPreview.validRows.length > 0 && (
-                    <button type="button" onClick={() => setImportStep('confirm')}>
-                      下一步：确认导入 <ArrowRight size={14} />
-                    </button>
-                  )}
+                  <button 
+                    type="button" 
+                    onClick={() => setImportStep('confirm')}
+                    disabled={batchPreview.validRows.length === 0 || (batchPreview.missingRequired && batchPreview.missingRequired.length > 0)}
+                  >
+                    下一步：确认导入 <ArrowRight size={14} />
+                  </button>
                 </div>
 
                 {batchPreview.totalRows > 0 && batchPreview.validRows.length === 0 && (
-                  <p className="empty-tip">没有可导入的作品，请检查数据格式或调整列映射后重试。</p>
+                  <p className="empty-tip">
+                    {batchPreview.missingRequired && batchPreview.missingRequired.length > 0 
+                      ? `请先完成必填字段映射：${batchPreview.missingRequired.join('、')}`
+                      : '没有可导入的作品，请检查数据格式或调整列映射后重试。'
+                    }
+                  </p>
                 )}
               </div>
             )}
