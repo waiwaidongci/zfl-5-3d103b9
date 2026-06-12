@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AlertCircle, ArrowLeftRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RotateCcw, Search, Tag, TrendingUp, Upload, User, XCircle, ClipboardList, Eye, AlertTriangle, Package, Shield } from 'lucide-react';
+import { AlertCircle, ArrowLeftRight, ArrowRight, Banknote, Brush, Building2, Calendar, CheckCircle2, CheckSquare, Clock, Coins, Database, Download, FileText, FileUp, Filter, Info, ListChecks, MessageCircle, MessageSquare, Pencil, Percent, Phone, Plus, Receipt, RotateCcw, Search, Settings, Tag, TrendingUp, Upload, User, UserPlus, XCircle, ClipboardList, Eye, AlertTriangle, Package, Shield } from 'lucide-react';
 import './styles.css';
 import CustomerList from './CustomerList.jsx';
 import CustomerDetail from './CustomerDetail.jsx';
@@ -161,7 +161,7 @@ function repairSplitThousandSeparator(cells, expectedFields, priceIndex) {
   return repaired.length === expectedFields ? repaired : cells;
 }
 
-function parseCSV(text) {
+function parseCSV(text, customMapping = {}) {
   const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
   if (lines.length === 0) return { header: null, rows: [] };
 
@@ -187,8 +187,19 @@ function parseCSV(text) {
 
   let headerMap = null;
   let dataStart = 0;
+  const rawHeader = hasHeader ? firstLine : null;
 
-  if (hasHeader) {
+  if (Object.keys(customMapping).length > 0) {
+    headerMap = {};
+    const sourceHeader = hasHeader ? firstLine : CSV_COLUMNS.map((_, i) => `列${i + 1}`);
+    sourceHeader.forEach((cell, idx) => {
+      const normalized = cell.trim();
+      if (customMapping[normalized] && CSV_COLUMNS.includes(customMapping[normalized])) {
+        headerMap[customMapping[normalized]] = idx;
+      }
+    });
+    dataStart = hasHeader ? 1 : 0;
+  } else if (hasHeader) {
     headerMap = {};
     firstLine.forEach((cell, idx) => {
       const normalized = cell.trim();
@@ -199,6 +210,7 @@ function parseCSV(text) {
     dataStart = 1;
   }
 
+  const CSV_FIELD_KEYS = ['artist', 'title', 'price', 'inDate', 'exhibit', 'sale'];
   const rows = [];
   for (let i = dataStart; i < lines.length; i++) {
     let cells = parseLine(lines[i]);
@@ -206,38 +218,25 @@ function parseCSV(text) {
     cells = repairSplitThousandSeparator(cells, CSV_COLUMNS.length, priceIndex);
     if (cells.every(c => c === '')) continue;
 
-    let row;
-    if (headerMap) {
-      row = {
-        artist: cells[headerMap['艺术家']] ?? '',
-        title: cells[headerMap['作品名']] ?? '',
-        price: cells[headerMap['价格']] ?? '',
-        inDate: cells[headerMap['入库日期']] ?? '',
-        exhibit: cells[headerMap['展态']] ?? '',
-        sale: cells[headerMap['销售状态']] ?? '',
-        rawLine: lines[i],
-        lineNumber: i + 1
-      };
-    } else {
-      row = {
-        artist: cells[0] ?? '',
-        title: cells[1] ?? '',
-        price: cells[2] ?? '',
-        inDate: cells[3] ?? '',
-        exhibit: cells[4] ?? '',
-        sale: cells[5] ?? '',
-        rawLine: lines[i],
-        lineNumber: i + 1
-      };
-    }
+    let row = { rawLine: lines[i], lineNumber: i + 1, rawCells: [...cells] };
+    CSV_FIELD_KEYS.forEach((key, idx) => {
+      const columnLabel = CSV_COLUMNS[idx];
+      if (headerMap && headerMap[columnLabel] !== undefined) {
+        row[key] = cells[headerMap[columnLabel]] ?? '';
+      } else {
+        row[key] = cells[idx] ?? '';
+      }
+    });
     rows.push(row);
   }
 
-  return { header: hasHeader ? firstLine : null, rows, headerMap };
+  return { header: rawHeader, rows, headerMap, detectedColumns: hasHeader ? firstLine : [] };
 }
 
-function validateRow(row, existingTitles, existingArtists, batchTitles) {
+function validateRow(row, existingTitles, existingArtists, batchTitles, autoCreateArtists = false) {
   const errors = [];
+  const warnings = [];
+  const info = [];
 
   if (!row.artist || row.artist.trim() === '') {
     errors.push('缺少艺术家');
@@ -245,8 +244,14 @@ function validateRow(row, existingTitles, existingArtists, batchTitles) {
 
   const artistName = row.artist.trim();
   const artistExists = existingArtists.has(artistName);
+  let artistStatus = 'existing';
   if (artistName && !artistExists) {
-    errors.push(`艺术家"${artistName}"未在系统中登记`);
+    if (autoCreateArtists) {
+      warnings.push(`艺术家"${artistName}"将自动创建`);
+      artistStatus = 'new';
+    } else {
+      errors.push(`艺术家"${artistName}"未在系统中登记`);
+    }
   }
 
   if (!row.title || row.title.trim() === '') {
@@ -282,6 +287,7 @@ function validateRow(row, existingTitles, existingArtists, batchTitles) {
       errors.push(`入库日期"${row.inDate}"格式非法，应为YYYY-MM-DD`);
     } else {
       inDate = parsed.toISOString().slice(0, 10);
+      info.push(`入库日期已自动转换为"${inDate}"`);
     }
   }
 
@@ -296,11 +302,16 @@ function validateRow(row, existingTitles, existingArtists, batchTitles) {
   }
   const normalizedSale = VALID_SALE.includes(sale) ? sale : '待售';
   const safeSale = normalizedSale === '已售' ? '待售' : normalizedSale;
+  if (normalizedSale === '已售') {
+    warnings.push('「已售」状态需通过订单登记，导入后为「待售」');
+  }
 
   return {
     valid: errors.length === 0,
     errors,
-    warnings: normalizedSale === '已售' ? ['「已售」状态需通过订单登记，导入后为「待售」'] : [],
+    warnings,
+    info,
+    artistStatus,
     cleaned: {
       artist: artistName,
       title,
@@ -330,6 +341,9 @@ function App() {
   const [showBatchImport, setShowBatchImport] = useState(false);
   const [batchCsvText, setBatchCsvText] = useState('');
   const [batchPreview, setBatchPreview] = useState(null);
+  const [columnMapping, setColumnMapping] = useState({});
+  const [autoCreateArtists, setAutoCreateArtists] = useState(true);
+  const [importStep, setImportStep] = useState('input');
   const [orders, setOrders] = useStorage('zfl-5-orders', seedOrders);
   const [orderForm, setOrderForm] = useState({ workId: '', customerName: '', customerPhone: '', dealPrice: '', deposit: '', balanceStatus: '待支付', dealDate: iso(0), note: '' });
   const [showOrderForm, setShowOrderForm] = useState(false);
@@ -1251,39 +1265,72 @@ function App() {
       return;
     }
 
-    const parsed = parseCSV(batchCsvText);
+    const parsed = parseCSV(batchCsvText, columnMapping);
     const existingTitles = new Set(works.map((w) => w.title));
     const existingArtists = new Set(artists.map((a) => a.name));
     const batchTitles = new Set();
+    const newArtistNames = new Set();
     const validRows = [];
-    const errorRows = [];
+    const skippedRows = [];
     const warningRows = [];
+    const errorRows = [];
 
     parsed.rows.forEach((row) => {
-      const result = validateRow(row, existingTitles, existingArtists, batchTitles);
+      const result = validateRow(row, existingTitles, existingArtists, batchTitles, autoCreateArtists);
       if (result.valid) {
         batchTitles.add(result.cleaned.title);
-        validRows.push({ ...row, cleaned: result.cleaned, warnings: result.warnings || [] });
-        if (result.warnings && result.warnings.length > 0) {
-          warningRows.push({ ...row, warnings: result.warnings });
+        const rowData = { 
+          ...row, 
+          cleaned: result.cleaned, 
+          warnings: result.warnings || [],
+          info: result.info || [],
+          artistStatus: result.artistStatus
+        };
+        validRows.push(rowData);
+        if (result.artistStatus === 'new') {
+          newArtistNames.add(result.cleaned.artist);
+        }
+        if ((result.warnings && result.warnings.length > 0) || (result.info && result.info.length > 0)) {
+          warningRows.push(rowData);
         }
       } else {
-        errorRows.push({ ...row, errors: result.errors });
+        const hasArtistError = result.errors.some(e => e.includes('未在系统中登记'));
+        if (hasArtistError && !autoCreateArtists) {
+          skippedRows.push({ ...row, errors: result.errors, skipReason: '艺术家未登记' });
+        } else {
+          errorRows.push({ ...row, errors: result.errors });
+        }
       }
     });
+
+    const newArtists = Array.from(newArtistNames).map(name => ({
+      id: crypto.randomUUID(),
+      name,
+      phone: '',
+      style: '',
+      note: '批量导入自动创建'
+    }));
 
     setBatchPreview({
       validRows,
       errorRows,
+      skippedRows,
       warningRows,
+      newArtists,
       totalRows: parsed.rows.length,
       header: parsed.header,
-      headerMap: parsed.headerMap
+      headerMap: parsed.headerMap,
+      detectedColumns: parsed.detectedColumns
     });
+    setImportStep('mapping');
   }
 
   function confirmBatchImport() {
     if (!batchPreview || batchPreview.validRows.length === 0) return;
+
+    if (batchPreview.newArtists && batchPreview.newArtists.length > 0) {
+      setArtists([...batchPreview.newArtists, ...artists]);
+    }
 
     const newWorks = batchPreview.validRows.map((row) => ({
       id: crypto.randomUUID(),
@@ -1301,12 +1348,16 @@ function App() {
     setWorks([...newWorks, ...works]);
     setBatchCsvText('');
     setBatchPreview(null);
+    setColumnMapping({});
+    setImportStep('input');
     setShowBatchImport(false);
   }
 
   function clearBatchImport() {
     setBatchCsvText('');
     setBatchPreview(null);
+    setColumnMapping({});
+    setImportStep('input');
   }
 
   const BACKUP_VERSION = 1;
@@ -1723,38 +1774,75 @@ function App() {
       {showBatchImport && (
         <section className="panel inquiry-form-panel">
           <div className="panel-header">
-            <h2><FileUp size={18} />作品批量导入预览</h2>
+            <h2><FileUp size={18} />作品批量导入</h2>
             <button className="ghost small" onClick={() => { setShowBatchImport(false); clearBatchImport(); }}>收起</button>
           </div>
           <div className="batch-import">
-            <div className="form-row">
-              <label><span className="label-icon"><FileUp size={14} /></span>
-                <textarea
-                  className="batch-textarea"
-                  placeholder={'粘贴CSV格式数据，支持以下列顺序：&#10;艺术家,作品名,价格,入库日期,展态,销售状态&#10;示例：&#10;谢青岚,山水之间,12800,2026-01-15,展出中,待售&#10;赵以南,静物写生,8600,2026-01-10,库房,已预订'}
-                  value={batchCsvText}
-                  onChange={(e) => setBatchCsvText(e.target.value)}
-                  rows={6}
-                />
-              </label>
-            </div>
-            <div className="form-actions">
-              <button type="button" className="ghost" onClick={clearBatchImport}>清空</button>
-              <button type="button" onClick={previewBatchImport}>解析预览</button>
+            <div className="batch-steps">
+              <div className={`batch-step ${importStep === 'input' ? 'active' : ''} ${importStep !== 'input' ? 'done' : ''}`}>
+                <div className="batch-step-icon"><FileUp size={16} /></div>
+                <span>粘贴数据</span>
+              </div>
+              <div className="batch-step-divider" />
+              <div className={`batch-step ${importStep === 'mapping' ? 'active' : ''} ${importStep === 'confirm' ? 'done' : ''}`}>
+                <div className="batch-step-icon"><Settings size={16} /></div>
+                <span>列映射</span>
+              </div>
+              <div className="batch-step-divider" />
+              <div className={`batch-step ${importStep === 'confirm' ? 'active' : ''}`}>
+                <div className="batch-step-icon"><ListChecks size={16} /></div>
+                <span>确认导入</span>
+              </div>
             </div>
 
-            {batchPreview && (
+            {importStep === 'input' && (
+              <>
+                <div className="form-row">
+                  <label><span className="label-icon"><FileUp size={14} /></span>
+                    <textarea
+                      className="batch-textarea"
+                      placeholder={'粘贴CSV格式数据，支持自定义表头映射。&#10;示例：&#10;艺术家,作品名,价格,入库日期,展态,销售状态&#10;谢青岚,山水之间,12800,2026-01-15,展出中,待售&#10;赵以南,静物写生,8600,2026-01-10,库房,已预订'}
+                      value={batchCsvText}
+                      onChange={(e) => setBatchCsvText(e.target.value)}
+                      rows={8}
+                    />
+                  </label>
+                </div>
+                <div className="form-row batch-options-row">
+                  <label className="batch-option">
+                    <input
+                      type="checkbox"
+                      checked={autoCreateArtists}
+                      onChange={(e) => setAutoCreateArtists(e.target.checked)}
+                    />
+                    <UserPlus size={16} />
+                    <span>自动创建不存在的艺术家</span>
+                  </label>
+                </div>
+                <div className="form-actions">
+                  <button type="button" className="ghost" onClick={clearBatchImport}>清空</button>
+                  <button type="button" onClick={previewBatchImport} disabled={!batchCsvText.trim()}>
+                    下一步：解析预览 <ArrowRight size={14} />
+                  </button>
+                </div>
+              </>
+            )}
+
+            {importStep === 'mapping' && batchPreview && (
               <div className="batch-preview">
                 <div className="batch-summary">
                   <span className="batch-summary-item valid">
-                    <CheckCircle2 size={16} /> 可导入 {batchPreview.validRows.length} 行
+                    <CheckCircle2 size={16} /> 有效作品 {batchPreview.validRows.length}
                   </span>
-                  <span className="batch-summary-item error">
-                    <XCircle size={16} /> 错误行 {batchPreview.errorRows.length} 行
+                  <span className="batch-summary-item warning">
+                    <AlertCircle size={16} /> 警告作品 {batchPreview.warningRows ? batchPreview.warningRows.length : 0}
                   </span>
-                  {batchPreview.warningRows && batchPreview.warningRows.length > 0 && (
-                    <span className="batch-summary-item warning">
-                      <AlertCircle size={16} /> 提示 {batchPreview.warningRows.length} 行
+                  <span className="batch-summary-item skip">
+                    <XCircle size={16} /> 跳过作品 {(batchPreview.skippedRows ? batchPreview.skippedRows.length : 0) + batchPreview.errorRows.length}
+                  </span>
+                  {batchPreview.newArtists && batchPreview.newArtists.length > 0 && (
+                    <span className="batch-summary-item new-artist">
+                      <UserPlus size={16} /> 新增艺术家 {batchPreview.newArtists.length}
                     </span>
                   )}
                   <span className="batch-summary-item total">
@@ -1762,21 +1850,65 @@ function App() {
                   </span>
                 </div>
 
-                {batchPreview.header && (
-                  <div className="batch-header-info">
-                    <span className="batch-header-detected">
-                      已检测到表头：{batchPreview.header.join(' | ')}
-                    </span>
+                {batchPreview.detectedColumns && batchPreview.detectedColumns.length > 0 && (
+                  <div className="batch-section">
+                    <h3 className="batch-section-title"><ArrowLeftRight size={16} /> 列映射配置</h3>
+                    <p className="batch-section-desc">请将CSV列映射到对应的系统字段</p>
+                    <div className="batch-mapping-grid">
+                      {batchPreview.detectedColumns.map((col, idx) => {
+                        const currentMapping = columnMapping[col] || (CSV_COLUMNS.includes(col) ? col : '');
+                        return (
+                          <div key={idx} className="batch-mapping-row">
+                            <span className="batch-mapping-source">{col}</span>
+                            <ArrowRight size={16} className="batch-mapping-arrow" />
+                            <select
+                              className="batch-mapping-target"
+                              value={currentMapping}
+                              onChange={(e) => {
+                                const newMapping = { ...columnMapping };
+                                if (e.target.value) {
+                                  newMapping[col] = e.target.value;
+                                } else {
+                                  delete newMapping[col];
+                                }
+                                setColumnMapping(newMapping);
+                              }}
+                            >
+                              <option value="">-- 不导入 --</option>
+                              {CSV_COLUMNS.map((targetCol) => (
+                                <option key={targetCol} value={targetCol}>{targetCol}</option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {batchPreview.newArtists && batchPreview.newArtists.length > 0 && (
+                  <div className="batch-section">
+                    <h3 className="batch-section-title new-artist-title"><UserPlus size={16} /> 将自动创建的艺术家</h3>
+                    <div className="batch-new-artists">
+                      {batchPreview.newArtists.map((artist, idx) => (
+                        <div key={idx} className="batch-new-artist-item">
+                          <User size={14} />
+                          <span>{artist.name}</span>
+                          <span className="batch-new-artist-note">（导入后可补充资料）</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
                 {batchPreview.validRows.length > 0 && (
                   <div className="batch-section">
-                    <h3 className="batch-section-title valid-title"><CheckCircle2 size={16} /> 可导入作品</h3>
+                    <h3 className="batch-section-title valid-title"><CheckCircle2 size={16} /> 有效作品</h3>
                     <div className="batch-table-container">
                       <table className="batch-table">
                         <thead>
                           <tr>
+                            <th style={{width: '60px'}}>行号</th>
                             <th>艺术家</th>
                             <th>作品名</th>
                             <th>价格</th>
@@ -1788,8 +1920,9 @@ function App() {
                         </thead>
                         <tbody>
                           {batchPreview.validRows.map((row, idx) => (
-                            <tr key={idx} className="batch-row-valid">
-                              <td>{row.cleaned.artist}</td>
+                            <tr key={idx} className={`batch-row-valid ${row.artistStatus === 'new' ? 'batch-row-new-artist' : ''}`}>
+                              <td>{row.lineNumber}</td>
+                              <td>{row.cleaned.artist} {row.artistStatus === 'new' && <UserPlus size={12} className="inline-icon" />}</td>
                               <td>{row.cleaned.title}</td>
                               <td>¥{Number(row.cleaned.price).toLocaleString()}</td>
                               <td>{row.cleaned.inDate}</td>
@@ -1799,6 +1932,37 @@ function App() {
                                 {row.warnings && row.warnings.map((w, i) => (
                                   <span key={i} className="batch-warning-tag"><AlertCircle size={12} /> {w}</span>
                                 ))}
+                                {row.info && row.info.map((w, i) => (
+                                  <span key={`info-${i}`} className="batch-info-tag"><Info size={12} /> {w}</span>
+                                ))}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {batchPreview.skippedRows && batchPreview.skippedRows.length > 0 && (
+                  <div className="batch-section">
+                    <h3 className="batch-section-title skip-title"><XCircle size={16} /> 跳过的行</h3>
+                    <div className="batch-table-container">
+                      <table className="batch-table">
+                        <thead>
+                          <tr>
+                            <th style={{width: '60px'}}>行号</th>
+                            <th>原始内容</th>
+                            <th>跳过原因</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {batchPreview.skippedRows.map((row, idx) => (
+                            <tr key={idx} className="batch-row-error">
+                              <td>{row.lineNumber}</td>
+                              <td className="batch-raw-cell">{row.rawLine}</td>
+                              <td className="batch-error-cell">
+                                <span className="batch-skip-tag"><XCircle size={12} /> {row.skipReason}</span>
                               </td>
                             </tr>
                           ))}
@@ -1810,7 +1974,7 @@ function App() {
 
                 {batchPreview.errorRows.length > 0 && (
                   <div className="batch-section">
-                    <h3 className="batch-section-title error-title"><XCircle size={16} /> 错误行（将被跳过）</h3>
+                    <h3 className="batch-section-title error-title"><XCircle size={16} /> 错误行</h3>
                     <div className="batch-table-container">
                       <table className="batch-table">
                         <thead>
@@ -1838,18 +2002,89 @@ function App() {
                   </div>
                 )}
 
-                {batchPreview.validRows.length > 0 && (
-                  <div className="form-actions">
-                    <button type="button" className="ghost" onClick={() => setBatchPreview(null)}>取消</button>
-                    <button type="button" onClick={confirmBatchImport}>
-                      确认导入 {batchPreview.validRows.length} 条作品
+                <div className="form-actions">
+                  <button type="button" className="ghost" onClick={() => setImportStep('input')}>返回</button>
+                  {Object.keys(columnMapping).length > 0 && (
+                    <button type="button" onClick={previewBatchImport}>
+                      重新映射解析
                     </button>
+                  )}
+                  {batchPreview.validRows.length > 0 && (
+                    <button type="button" onClick={() => setImportStep('confirm')}>
+                      下一步：确认导入 <ArrowRight size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {batchPreview.totalRows > 0 && batchPreview.validRows.length === 0 && (
+                  <p className="empty-tip">没有可导入的作品，请检查数据格式或调整列映射后重试。</p>
+                )}
+              </div>
+            )}
+
+            {importStep === 'confirm' && batchPreview && (
+              <div className="batch-preview">
+                <div className="batch-final-summary">
+                  <h3 className="batch-section-title"><ListChecks size={16} /> 导入摘要</h3>
+                  <div className="batch-summary-cards">
+                    <div className="batch-summary-card valid">
+                      <div className="batch-card-icon"><CheckCircle2 size={24} /></div>
+                      <div className="batch-card-info">
+                        <strong>{batchPreview.validRows.length}</strong>
+                        <span>有效作品</span>
+                      </div>
+                    </div>
+                    <div className="batch-summary-card warning">
+                      <div className="batch-card-icon"><AlertCircle size={24} /></div>
+                      <div className="batch-card-info">
+                        <strong>{batchPreview.warningRows ? batchPreview.warningRows.length : 0}</strong>
+                        <span>警告作品</span>
+                      </div>
+                    </div>
+                    <div className="batch-summary-card skip">
+                      <div className="batch-card-icon"><XCircle size={24} /></div>
+                      <div className="batch-card-info">
+                        <strong>{(batchPreview.skippedRows ? batchPreview.skippedRows.length : 0) + batchPreview.errorRows.length}</strong>
+                        <span>跳过作品</span>
+                      </div>
+                    </div>
+                    {batchPreview.newArtists && batchPreview.newArtists.length > 0 && (
+                      <div className="batch-summary-card new-artist">
+                        <div className="batch-card-icon"><UserPlus size={24} /></div>
+                        <div className="batch-card-info">
+                          <strong>{batchPreview.newArtists.length}</strong>
+                          <span>新增艺术家</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {batchPreview.newArtists && batchPreview.newArtists.length > 0 && (
+                  <div className="batch-section">
+                    <h3 className="batch-section-title new-artist-title"><UserPlus size={16} /> 新增艺术家列表</h3>
+                    <div className="batch-new-artists">
+                      {batchPreview.newArtists.map((artist, idx) => (
+                        <div key={idx} className="batch-new-artist-item">
+                          <User size={14} />
+                          <span className="batch-new-artist-name">{artist.name}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
-                {batchPreview.totalRows > 0 && batchPreview.validRows.length === 0 && (
-                  <p className="empty-tip">没有可导入的作品，请检查数据格式后重试。</p>
-                )}
+                <div className="batch-confirm-tip">
+                  <Info size={16} />
+                  <span>确认后将导入 {batchPreview.validRows.length} 条作品{batchPreview.newArtists && batchPreview.newArtists.length > 0 ? `，并创建 ${batchPreview.newArtists.length} 位新艺术家` : ''}。</span>
+                </div>
+
+                <div className="form-actions">
+                  <button type="button" className="ghost" onClick={() => setImportStep('mapping')}>返回修改</button>
+                  <button type="button" onClick={confirmBatchImport}>
+                    <CheckCircle2 size={16} /> 确认导入
+                  </button>
+                </div>
               </div>
             )}
           </div>
