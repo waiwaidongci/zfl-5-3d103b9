@@ -77,7 +77,7 @@ const RULE_LABELS = {
 };
 
 const RULE_META = {
-  [RULE_ID.SOLD_WITHOUT_ORDER]: { category: CATEGORY.WORK_ORDER, severity: SEVERITY.CRITICAL, autoFixable: true, fixType: 'create-order-or-reset-sale', fixLabel: '补录订单或将作品恢复为待售' },
+  [RULE_ID.SOLD_WITHOUT_ORDER]: { category: CATEGORY.WORK_ORDER, severity: SEVERITY.CRITICAL, autoFixable: true, fixType: 'create-order-or-reset-sale', fixLabel: '将作品恢复为待售（补录订单需手动操作）' },
   [RULE_ID.CANCELED_ORDER_PENDING_SETTLEMENT]: { category: CATEGORY.ORDER_CANCEL, severity: SEVERITY.CRITICAL, autoFixable: true, fixType: 'reset-work-settlement-unsettled', fixLabel: '将作品结算状态改为未结算' },
   [RULE_ID.CANCELLED_ORDER_STILL_SOLD]: { category: CATEGORY.ORDER_CANCEL, severity: SEVERITY.CRITICAL, autoFixable: true, fixType: 'reset-work-sale', fixLabel: '将作品恢复为待售' },
   [RULE_ID.SETTLED_WITHOUT_ORDER]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.WARNING, autoFixable: false },
@@ -87,19 +87,19 @@ const RULE_META = {
   [RULE_ID.ORPHAN_INQUIRY]: { category: CATEGORY.ORPHAN, severity: SEVERITY.CRITICAL, autoFixable: true, fixType: 'delete-orphan-inquiry', fixLabel: '删除孤儿询价记录' },
   [RULE_ID.ORPHAN_ORDER]: { category: CATEGORY.ORPHAN, severity: SEVERITY.CRITICAL, autoFixable: true, fixType: 'delete-orphan-order', fixLabel: '删除孤儿订单记录' },
   [RULE_ID.ORPHAN_LOAN]: { category: CATEGORY.ORPHAN, severity: SEVERITY.CRITICAL, autoFixable: true, fixType: 'delete-orphan-loan', fixLabel: '删除孤儿借展记录' },
-  [RULE_ID.ORPHAN_INVENTORY]: { category: CATEGORY.ORPHAN, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'flag-orphan-inventory', fixLabel: '标记为异常' },
+  [RULE_ID.ORPHAN_INVENTORY]: { category: CATEGORY.ORPHAN, severity: SEVERITY.WARNING, autoFixable: false },
   [RULE_ID.LOAN_RETURNED_NOT_REVERTED]: { category: CATEGORY.LOAN_RETURN, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'revert-exhibit-to-storage', fixLabel: '将展态改回库房' },
-  [RULE_ID.SETTLEMENT_WORK_NOT_SOLD]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.CRITICAL, autoFixable: true, fixType: 'set-work-sold', fixLabel: '将作品设为已售' },
-  [RULE_ID.SETTLEMENT_WORK_UNSETTLED]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'set-work-settled', fixLabel: '将作品设为已结算' },
+  [RULE_ID.SETTLEMENT_WORK_NOT_SOLD]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.CRITICAL, autoFixable: false },
+  [RULE_ID.SETTLEMENT_WORK_UNSETTLED]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.WARNING, autoFixable: false },
   [RULE_ID.PAYMENT_STATUS_PAID_BUT_NOT_FULL]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'fix-payment-status-to-partial', fixLabel: '将付款状态改为部分付款' },
   [RULE_ID.PAYMENT_STATUS_PENDING_BUT_PAID]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'fix-payment-status-to-partial', fixLabel: '将付款状态改为部分付款' },
   [RULE_ID.PAYMENT_STATUS_PARTIAL_BUT_FULLY_PAID]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'fix-payment-status-to-paid', fixLabel: '将付款状态改为已付款' },
   [RULE_ID.PAYMENT_OVERPAID]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.INFO, autoFixable: false },
   [RULE_ID.PAYMENT_MISSING_DATE]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.INFO, autoFixable: false },
   [RULE_ID.PAYMENT_OVERDUE]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.WARNING, autoFixable: false },
-  [RULE_ID.CUSTOMER_CONFLICT_ABANDONED]: { category: CATEGORY.CUSTOMER, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'mark-inquiries-dealed', fixLabel: '将已放弃询价标记为已成交' },
-  [RULE_ID.CUSTOMER_CONFLICT_DEALED_NO_ORDER]: { category: CATEGORY.CUSTOMER, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'reset-inquiries-to-following', fixLabel: '将已成交询价改回跟进中' },
-  [RULE_ID.INVENTORY_DISCREPANCY]: { category: CATEGORY.INVENTORY_DISCREPANCY, severity: SEVERITY.WARNING, autoFixable: true, fixType: 'resolve-inventory-discrepancy-restore', fixLabel: '恢复快照状态' }
+  [RULE_ID.CUSTOMER_CONFLICT_ABANDONED]: { category: CATEGORY.CUSTOMER, severity: SEVERITY.WARNING, autoFixable: false },
+  [RULE_ID.CUSTOMER_CONFLICT_DEALED_NO_ORDER]: { category: CATEGORY.CUSTOMER, severity: SEVERITY.WARNING, autoFixable: false },
+  [RULE_ID.INVENTORY_DISCREPANCY]: { category: CATEGORY.INVENTORY_DISCREPANCY, severity: SEVERITY.WARNING, autoFixable: false }
 };
 
 function createIssue(ruleId, overrides) {

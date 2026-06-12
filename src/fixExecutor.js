@@ -81,83 +81,6 @@ function generateFixPreview(issues, data) {
         }
         break;
       }
-      case 'set-work-sold': {
-        const work = data.works.find((w) => w.id === issue.entityId);
-        if (work) {
-          patches.push({
-            issueId: issue.id,
-            fixType: issue.fixType,
-            fixLabel: issue.fixLabel,
-            entityType: 'works',
-            entityId: work.id,
-            entityLabel: `${work.artist} — ${work.title}`,
-            before: { sale: work.sale },
-            after: { sale: '已售' },
-            description: `将作品「${work.title}」销售状态设为「已售」`
-          });
-        }
-        break;
-      }
-      case 'set-work-settled': {
-        const work = data.works.find((w) => w.id === issue.entityId);
-        if (work) {
-          const iso = () => new Date().toISOString().slice(0, 10);
-          patches.push({
-            issueId: issue.id,
-            fixType: issue.fixType,
-            fixLabel: issue.fixLabel,
-            entityType: 'works',
-            entityId: work.id,
-            entityLabel: `${work.artist} — ${work.title}`,
-            before: { settlement: work.settlement, settlementDate: work.settlementDate },
-            after: { settlement: '已结算', settlementDate: iso() },
-            description: `将作品「${work.title}」结算状态设为「已结算」`
-          });
-        }
-        break;
-      }
-      case 'mark-inquiries-dealed': {
-        const relatedInquiries = data.inquiries.filter(
-          (inq) => inq.customerName && inq.customerPhone &&
-            `${inq.customerName.trim()}__${inq.customerPhone.trim()}` === issue.entityId &&
-            inq.status === '已放弃'
-        );
-        relatedInquiries.forEach((inq) => {
-          patches.push({
-            issueId: issue.id,
-            fixType: issue.fixType,
-            fixLabel: issue.fixLabel,
-            entityType: 'inquiries',
-            entityId: inq.id,
-            entityLabel: `${inq.workTitle} · ${inq.customerName}`,
-            before: { status: inq.status },
-            after: { status: '已成交' },
-            description: `将询价「${inq.workTitle} · ${inq.customerName}」状态从「已放弃」改为「已成交」`
-          });
-        });
-        break;
-      }
-      case 'reset-inquiries-to-following': {
-        const relatedInquiries = data.inquiries.filter(
-          (inq) => inq.customerName && inq.customerPhone &&
-            `${inq.customerName.trim()}__${inq.customerPhone.trim()}` === issue.entityId &&
-            inq.status === '已成交'
-        );
-        relatedInquiries.forEach((inq) => {
-          patches.push({
-            issueId: issue.id,
-            fixType: issue.fixType,
-            fixLabel: issue.fixLabel,
-            entityType: 'inquiries',
-            entityId: inq.id,
-            entityLabel: `${inq.workTitle} · ${inq.customerName}`,
-            before: { status: inq.status },
-            after: { status: '跟进中' },
-            description: `将询价「${inq.workTitle} · ${inq.customerName}」状态从「已成交」改为「跟进中」`
-          });
-        });
-        break;
-      }
       case 'delete-orphan-inquiry': {
         const inq = data.inquiries.find((i) => i.id === issue.entityId);
         if (inq) {
@@ -206,73 +129,6 @@ function generateFixPreview(issues, data) {
             after: { exists: false },
             description: `删除引用不存在作品的借展记录「${loan.workTitle || loan.id} · ${loan.borrower}」`
           });
-        }
-        break;
-      }
-      case 'flag-orphan-inventory': {
-        const task = data.inventoryTasks.find((t) => t.id === issue.relatedEntityId);
-        if (task) {
-          const item = task.items.find((i) => i.id === issue.entityId);
-          if (item) {
-            patches.push({
-              issueId: issue.id,
-              fixType: issue.fixType,
-              fixLabel: issue.fixLabel,
-              entityType: 'inventoryItems',
-              entityId: item.id,
-              entityLabel: `${item.workSnapshot?.title || item.id} (任务: ${task.name})`,
-              before: { status: item.status },
-              after: { status: '异常' },
-              description: `将盘点条目「${item.workSnapshot?.title || item.id}」标记为异常`
-            });
-          }
-        }
-        break;
-      }
-      case 'resolve-inventory-discrepancy-restore': {
-        const task = data.inventoryTasks.find((t) => t.id === issue.relatedEntityId);
-        if (task) {
-          const item = task.items.find((i) => i.id === issue.entityId);
-          if (item) {
-            const currentWork = data.works.find((w) => w.id === item.workId);
-            const DISCREPANCY_FIELDS = ['exhibit', 'sale', 'price'];
-            const restorePatch = {};
-            let diffSummary = '';
-            if (currentWork) {
-              DISCREPANCY_FIELDS.forEach((field) => {
-                const snapVal = String(item.workSnapshot[field] ?? '');
-                const curVal = String(currentWork[field] ?? '');
-                if (snapVal !== curVal) {
-                  restorePatch[field] = item.workSnapshot[field];
-                  diffSummary += `${field}: ${curVal} → ${snapVal}; `;
-                }
-              });
-            }
-            if (Object.keys(restorePatch).length > 0) {
-              patches.push({
-                issueId: issue.id,
-                fixType: 'restore-work-from-snapshot',
-                fixLabel: '恢复作品快照状态',
-                entityType: 'works',
-                entityId: item.workId,
-                entityLabel: `${item.workSnapshot?.artist || ''} — ${item.workSnapshot?.title || item.id}`,
-                before: { ...restorePatch },
-                after: restorePatch,
-                description: `将作品「${item.workSnapshot?.title}」恢复为盘点快照状态：${diffSummary.trim()}`
-              });
-            }
-            patches.push({
-              issueId: issue.id,
-              fixType: 'resolve-inventory-item',
-              fixLabel: '标记差异已恢复',
-              entityType: 'inventoryItems',
-              entityId: item.id,
-              entityLabel: `${item.workSnapshot?.title || item.id} (任务: ${task.name})`,
-              before: { discrepancyResolution: '未处理' },
-              after: { discrepancyResolution: '已恢复', discrepancyNote: '通过数据健康中心自动恢复' },
-              description: `将盘点条目「${item.workSnapshot?.title || item.id}」差异标记为已恢复`
-            });
-          }
         }
         break;
       }
@@ -343,24 +199,13 @@ function applyFixes(patches, data) {
     artists: [...(data.artists || [])]
   };
 
-  const iso = () => new Date().toISOString().slice(0, 10);
-
   patches.forEach((patch) => {
     switch (patch.fixType) {
       case 'reset-work-sale':
       case 'reset-work-settlement-unsettled':
       case 'revert-exhibit-to-storage':
-      case 'set-work-sold':
-      case 'set-work-settled':
         updatedData.works = updatedData.works.map((w) =>
           w.id === patch.entityId ? { ...w, ...patch.after } : w
-        );
-        break;
-
-      case 'mark-inquiries-dealed':
-      case 'reset-inquiries-to-following':
-        updatedData.inquiries = updatedData.inquiries.map((inq) =>
-          inq.id === patch.entityId ? { ...inq, ...patch.after } : inq
         );
         break;
 
@@ -374,39 +219,6 @@ function applyFixes(patches, data) {
 
       case 'delete-orphan-loan':
         updatedData.loans = updatedData.loans.filter((l) => l.id !== patch.entityId);
-        break;
-
-      case 'flag-orphan-inventory':
-        updatedData.inventoryTasks = updatedData.inventoryTasks.map((task) => ({
-          ...task,
-          items: task.items.map((item) =>
-            item.id === patch.entityId ? { ...item, ...patch.after, checkedAt: new Date().toISOString() } : item
-          )
-        }));
-        break;
-
-      case 'restore-work-from-snapshot':
-        updatedData.works = updatedData.works.map((w) =>
-          w.id === patch.entityId ? { ...w, ...patch.after } : w
-        );
-        break;
-
-      case 'resolve-inventory-item':
-        updatedData.inventoryTasks = updatedData.inventoryTasks.map((task) => ({
-          ...task,
-          items: task.items.map((item) => {
-            if (item.id !== patch.entityId) return item;
-            return {
-              ...item,
-              discrepancy: {
-                ...item.discrepancy,
-                resolution: patch.after.discrepancyResolution,
-                resolutionNote: patch.after.discrepancyNote || '',
-                resolvedAt: new Date().toISOString()
-              }
-            };
-          })
-        }));
         break;
 
       case 'fix-payment-status-to-partial':
