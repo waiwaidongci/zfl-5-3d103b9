@@ -183,8 +183,11 @@ class HistoryManager {
     return data;
   }
 
-  _restoreEntityData(data) {
+  _restoreEntityData(data, affectedEntityTypes = null) {
     for (const entityType of ENTITY_ORDER) {
+      if (affectedEntityTypes && !affectedEntityTypes.includes(entityType)) {
+        continue;
+      }
       const storageKey = STORAGE_KEYS[entityType];
       if (data[entityType] !== undefined) {
         localStorage.setItem(storageKey, JSON.stringify(data[entityType]));
@@ -295,8 +298,10 @@ class HistoryManager {
       return null;
     }
 
+    const affectedTypes = this._extractEntityTypes(operation.affectedEntities);
+
     this.undoStack.splice(idx, 1);
-    this._restoreEntityData(operation.beforeData);
+    this._restoreEntityData(operation.beforeData, affectedTypes);
     this.redoStack.push(operation);
     this._saveToStorage();
     this._notifyListeners();
@@ -310,7 +315,8 @@ class HistoryManager {
 
     return {
       operation,
-      restoredData: operation.beforeData
+      restoredData: operation.beforeData,
+      affectedTypes
     };
   }
 
@@ -318,7 +324,9 @@ class HistoryManager {
     if (this.redoStack.length === 0) return null;
 
     const operation = this.redoStack.pop();
-    this._restoreEntityData(operation.afterData);
+    const affectedTypes = this._extractEntityTypes(operation.affectedEntities);
+
+    this._restoreEntityData(operation.afterData, affectedTypes);
     this.undoStack.push(operation);
     this._saveToStorage();
     this._notifyListeners();
@@ -332,8 +340,18 @@ class HistoryManager {
 
     return {
       operation,
-      restoredData: operation.afterData
+      restoredData: operation.afterData,
+      affectedTypes
     };
+  }
+
+  _extractEntityTypes(affectedEntities) {
+    if (!affectedEntities || affectedEntities.length === 0) return null;
+    const types = new Set();
+    affectedEntities.forEach((e) => {
+      if (e && e.entityType) types.add(e.entityType);
+    });
+    return types.size > 0 ? [...types] : null;
   }
 
   _countSessionUndo() {

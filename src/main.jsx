@@ -48,7 +48,12 @@ const seedWorks = [
 function useStorage(key, initial) {
   const [value, setValue] = useState(() => {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : initial;
+    if (raw) {
+      return JSON.parse(raw);
+    }
+    const resolvedInitial = typeof initial === 'function' ? initial() : initial;
+    localStorage.setItem(key, JSON.stringify(resolvedInitial));
+    return resolvedInitial;
   });
   const update = (next) => {
     const resolved = typeof next === 'function' ? next(value) : next;
@@ -493,27 +498,27 @@ function App() {
     }
   }
 
-  function syncStateFromRestoredData(restoredData) {
-    setArtists(restoredData.artists);
-    setWorks(restoredData.works);
-    setInquiries(restoredData.inquiries);
-    setOrders(restoredData.orders);
-    setStatements(restoredData.statements);
-    setLoans(restoredData.loans);
-    setInventoryTasks(restoredData.inventoryTasks);
+  function syncStateFromRestoredData(restoredData, affectedTypes) {
+    if (!affectedTypes || affectedTypes.includes('artists')) setArtists(restoredData.artists);
+    if (!affectedTypes || affectedTypes.includes('works')) setWorks(restoredData.works);
+    if (!affectedTypes || affectedTypes.includes('inquiries')) setInquiries(restoredData.inquiries);
+    if (!affectedTypes || affectedTypes.includes('orders')) setOrders(restoredData.orders);
+    if (!affectedTypes || affectedTypes.includes('statements')) setStatements(restoredData.statements);
+    if (!affectedTypes || affectedTypes.includes('loans')) setLoans(restoredData.loans);
+    if (!affectedTypes || affectedTypes.includes('inventoryTasks')) setInventoryTasks(restoredData.inventoryTasks);
   }
 
   function handleUndo() {
     const result = historyManager.undo();
     if (result) {
-      syncStateFromRestoredData(result.restoredData);
+      syncStateFromRestoredData(result.restoredData, result.affectedTypes);
     }
   }
 
   function handleRedo() {
     const result = historyManager.redo();
     if (result) {
-      syncStateFromRestoredData(result.restoredData);
+      syncStateFromRestoredData(result.restoredData, result.affectedTypes);
     }
   }
 
