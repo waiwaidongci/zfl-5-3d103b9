@@ -1203,7 +1203,13 @@ function App() {
     return selectedInventoryTask.items.filter((item) => {
       const text = `${item.workSnapshot.artist}${item.workSnapshot.title}${item.workSnapshot.exhibit}`;
       const matchQuery = text.includes(inventoryQuery.trim());
-      const matchStatus = inventoryItemFilter === '全部状态' || item.status === inventoryItemFilter;
+      const isDiscrepancyItem = item.status === '异常' || item.status === '缺失';
+      const isUnresolvedDiscrepancy = isDiscrepancyItem && (!item.discrepancy || item.discrepancy.resolution === '未处理');
+      const isResolvedDiscrepancy = isDiscrepancyItem && item.discrepancy && item.discrepancy.resolution !== '未处理';
+      const matchStatus = inventoryItemFilter === '全部状态'
+        || item.status === inventoryItemFilter
+        || (inventoryItemFilter === '未处理差异' && isUnresolvedDiscrepancy)
+        || (inventoryItemFilter === '已处理差异' && isResolvedDiscrepancy);
       return matchQuery && matchStatus;
     });
   }, [selectedInventoryTask, inventoryQuery, inventoryItemFilter]);
