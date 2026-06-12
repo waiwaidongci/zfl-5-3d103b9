@@ -301,6 +301,21 @@ function checkPaymentConsistency(statements) {
       });
     }
 
+    if ((paymentStatus === '部分付款' || paymentStatus === '已付款') && paidAmount > 0 && !statement.paymentDate) {
+      issues.push({
+        id: `payment-missing-date-${statement.id}`,
+        category: CATEGORY.SETTLEMENT,
+        severity: SEVERITY.INFO,
+        title: `对账单「${statement.artist}」有付款记录但缺少付款日期`,
+        description: `对账单付款状态为「${paymentStatus}」，已付金额 ¥${paidAmount.toLocaleString()}，但未记录付款日期。`,
+        entityId: statement.id,
+        entityType: 'statements',
+        entitySnapshot: { ...statement },
+        fixType: 'none',
+        fixLabel: '请在编辑付款时补充付款日期'
+      });
+    }
+
     if (statement.confirmedAt) {
       const confirmedDate = new Date(statement.confirmedAt);
       const now = new Date();

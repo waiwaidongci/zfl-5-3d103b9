@@ -429,11 +429,23 @@ function App() {
     }, 0);
 
     const confirmedStatementsThisMonth = statements.filter((s) => s.confirmed && isThisMonth(s.confirmedAt));
-    const paidStatementsThisMonth = statements.filter((s) => s.paymentStatus === '已付款' && isThisMonth(s.paymentDate));
+    const paidStatementsThisMonth = statements.filter((s) => {
+      const status = s.paymentStatus || '待付款';
+      return (status === '已付款' || status === '部分付款') && isThisMonth(s.paymentDate);
+    });
+    const partialPaymentThisMonth = statements.filter((s) => {
+      const status = s.paymentStatus || '待付款';
+      return status === '部分付款' && isThisMonth(s.paymentDate);
+    });
+    const fullyPaidThisMonth = statements.filter((s) => {
+      const status = s.paymentStatus || '待付款';
+      return status === '已付款' && isThisMonth(s.paymentDate);
+    });
 
     const confirmedStatementAmount = confirmedStatementsThisMonth.reduce((sum, s) => sum + Number(s.totalPayable || 0), 0);
     const confirmedStatementCommission = confirmedStatementsThisMonth.reduce((sum, s) => sum + Number(s.totalCommission || 0), 0);
     const paidStatementAmount = paidStatementsThisMonth.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0);
+    const partialPaymentAmount = partialPaymentThisMonth.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0);
     const pendingPaymentAmount = confirmedStatementsThisMonth.reduce(
       (sum, s) => sum + Math.max(0, Number(s.totalPayable || 0) - Number(s.paidAmount || 0)),
       0
@@ -453,6 +465,9 @@ function App() {
       confirmedStatementCommission,
       paidStatementCount: paidStatementsThisMonth.length,
       paidStatementAmount,
+      partialPaymentCount: partialPaymentThisMonth.length,
+      partialPaymentAmount,
+      fullyPaidCount: fullyPaidThisMonth.length,
       pendingPaymentAmount,
       currentMonthLabel: `${currentYear}年${currentMonth + 1}月`
     };
@@ -905,23 +920,35 @@ function App() {
   function updateStatementPayment(statementId, paymentStatus, paidAmount, paymentNote, paymentDate) {
     setStatements(statements.map((s) => {
       if (s.id !== statementId) return s;
-      const newPaidAmount = paidAmount !== undefined ? Number(paidAmount || 0) : s.paidAmount;
-      let finalStatus = paymentStatus || s.paymentStatus;
+      const newPaidAmount = paidAmount !== undefined ? Number(paidAmount || 0) : Number(s.paidAmount || 0);
+      let finalStatus = paymentStatus || s.paymentStatus || '待付款';
       if (!paymentStatus && paidAmount !== undefined) {
         if (newPaidAmount <= 0) {
           finalStatus = '待付款';
-        } else if (newPaidAmount >= s.totalPayable) {
+        } else if (newPaidAmount >= Number(s.totalPayable || 0)) {
           finalStatus = '已付款';
         } else {
           finalStatus = '部分付款';
         }
       }
+
+      let finalPaymentDate;
+      if (paymentDate !== undefined && paymentDate !== null) {
+        finalPaymentDate = paymentDate;
+      } else if (s.paymentDate) {
+        finalPaymentDate = s.paymentDate;
+      } else if (finalStatus === '已付款' || finalStatus === '部分付款') {
+        finalPaymentDate = iso(0);
+      } else {
+        finalPaymentDate = null;
+      }
+
       return {
         ...s,
         paymentStatus: finalStatus,
         paidAmount: newPaidAmount,
-        paymentNote: paymentNote !== undefined ? paymentNote : s.paymentNote,
-        paymentDate: paymentDate || s.paymentDate || (finalStatus === '已付款' ? iso(0) : s.paymentDate)
+        paymentNote: paymentNote !== undefined ? paymentNote : (s.paymentNote || ''),
+        paymentDate: finalPaymentDate
       };
     }));
   }
@@ -1083,7 +1110,8 @@ function App() {
       })
       .filter((s) => {
         if (statementPaymentFilter === '全部付款状态') return true;
-        return s.paymentStatus === statementPaymentFilter;
+        const status = s.paymentStatus || '待付款';
+        return status === statementPaymentFilter;
       })
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }, [statements, statementFilter, statementPaymentFilter]);
@@ -2855,8 +2883,9 @@ function App() {
                 <div className="stat-icon"><CheckCircle2 size={20} /></div>
                 <div className="stat-info">
                   <span className="stat-label">实际已付款</span>
-                  <strong className="stat-value">{monthlySettlement.paidStatementCount}份</strong>
+                  <strong className="stat-value">已付清{monthlySettlement.fullyPaidCount}份 · 部分{monthlySettlement.partialPaymentCount}份</strong>
                   <span className="stat-amount">¥{monthlySettlement.paidStatementAmount.toLocaleString()}</span>
+                  {monthlySettlement.partialPaymentAmount > 0 && <span className="stat-sub">其中部分付款 ¥{monthlySettlement.partialPaymentAmount.toLocaleString()}</span>}
                 </div>
               </div>
               <div className="stat-card stat-pending-pay">
