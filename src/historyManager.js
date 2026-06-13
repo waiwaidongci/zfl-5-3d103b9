@@ -32,7 +32,8 @@ const OPERATION_TYPES = {
   COMPLETE_FOLLOW_UP: 'complete-follow-up',
   POSTPONE_FOLLOW_UP: 'postpone-follow-up',
   UPDATE_FOLLOW_UP: 'update-follow-up',
-  DELETE_FOLLOW_UP: 'delete-follow-up'
+  DELETE_FOLLOW_UP: 'delete-follow-up',
+  MERGE_CUSTOMERS: 'merge-customers'
 };
 
 const OPERATION_LABELS = {
@@ -64,7 +65,8 @@ const OPERATION_LABELS = {
   [OPERATION_TYPES.COMPLETE_FOLLOW_UP]: '完成跟进计划',
   [OPERATION_TYPES.POSTPONE_FOLLOW_UP]: '延期跟进计划',
   [OPERATION_TYPES.UPDATE_FOLLOW_UP]: '修改跟进计划',
-  [OPERATION_TYPES.DELETE_FOLLOW_UP]: '删除跟进计划'
+  [OPERATION_TYPES.DELETE_FOLLOW_UP]: '删除跟进计划',
+  [OPERATION_TYPES.MERGE_CUSTOMERS]: '合并客户'
 };
 
 const STORAGE_KEYS = {

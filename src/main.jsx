@@ -6,7 +6,7 @@ import CustomerList from './CustomerList.jsx';
 import CustomerDetail from './CustomerDetail.jsx';
 import DataHealthCenter from './DataHealthCenter.jsx';
 import SalesFunnel from './SalesFunnel.jsx';
-import { buildCustomerProfile } from './customerUtils.js';
+import { buildCustomerProfile, executeCustomerMerge } from './customerUtils.js';
 import { historyManager, OPERATION_TYPES, OPERATION_LABELS, STORAGE_KEYS } from './historyManager.js';
 import MigrationWizard from './MigrationWizard.jsx';
 
@@ -1049,6 +1049,27 @@ function App() {
     setSelectedCustomerKey(null);
     setShowSalesFunnel(true);
     setSelectedFunnelWorkId(workId);
+  }
+
+  function handleMergeCustomers(targetName, targetPhone, sourceKeys) {
+    const result = executeCustomerMerge(inquiries, orders, followUps, targetName, targetPhone, sourceKeys);
+    const primaryLabel = `${targetName}（${targetPhone}）`;
+    const affectedEntities = [
+      { entityType: 'inquiries', entityId: 'batch', entityLabel: `${sourceKeys.length}条询价记录` },
+      { entityType: 'orders', entityId: 'batch', entityLabel: `相关订单记录` },
+      { entityType: 'followUps', entityId: 'batch', entityLabel: `相关跟进记录` }
+    ];
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.MERGE_CUSTOMERS,
+      `合并客户至「${primaryLabel}」`,
+      affectedEntities,
+      () => {
+        setInquiries(result.inquiries);
+        setOrders(result.orders);
+        setFollowUps(result.followUps);
+      }
+    );
+    setSelectedCustomerKey(null);
   }
 
   const allCustomers = useMemo(
@@ -3185,6 +3206,7 @@ function App() {
           orders={orders}
           followUps={followUps}
           onSelectCustomer={(key) => setSelectedCustomerKey(key)}
+          onMerge={handleMergeCustomers}
         />
       )}
 

@@ -1,10 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { User, Phone, Banknote, Search, Filter, Eye, Receipt, MessageSquare, ChevronRight, AlertTriangle, Clock } from 'lucide-react';
-import { CUSTOMER_STATUS, buildCustomerProfile, filterCustomers } from './customerUtils.js';
+import { User, Phone, Banknote, Search, Filter, Eye, Receipt, MessageSquare, ChevronRight, AlertTriangle, Clock, ArrowRightLeft } from 'lucide-react';
+import { CUSTOMER_STATUS, buildCustomerProfile, filterCustomers, findDuplicateCustomers } from './customerUtils.js';
+import CustomerMergePanel from './CustomerMergePanel.jsx';
 
-function CustomerList({ inquiries, orders, followUps = [], onSelectCustomer }) {
+function CustomerList({ inquiries, orders, followUps = [], onSelectCustomer, onMerge }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('全部状态');
+  const [showMergePanel, setShowMergePanel] = useState(false);
+  const [ignoredPairIds, setIgnoredPairIds] = useState(new Set());
 
   const allCustomers = useMemo(
     () => buildCustomerProfile(inquiries, orders, followUps),
@@ -36,6 +39,15 @@ function CustomerList({ inquiries, orders, followUps = [], onSelectCustomer }) {
     return { total, dealed, following, totalAmount };
   }, [allCustomers]);
 
+  const duplicateCount = useMemo(
+    () => findDuplicateCustomers(allCustomers).length,
+    [allCustomers, ignoredPairIds]
+  );
+
+  function handleIgnorePair(pairId) {
+    setIgnoredPairIds((prev) => new Set([...prev, pairId]));
+  }
+
   function getStatusClass(status) {
     switch (status) {
       case CUSTOMER_STATUS.DEALED:
@@ -66,6 +78,14 @@ function CustomerList({ inquiries, orders, followUps = [], onSelectCustomer }) {
           />
         </label>
         <div className="toolbar-right">
+          {duplicateCount > 0 && (
+            <button
+              className={showMergePanel ? '' : 'ghost'}
+              onClick={() => setShowMergePanel(!showMergePanel)}
+            >
+              <ArrowRightLeft size={14} /> 合并去重 ({duplicateCount})
+            </button>
+          )}
           <label>
             <Filter size={16} />
             <select
@@ -105,6 +125,15 @@ function CustomerList({ inquiries, orders, followUps = [], onSelectCustomer }) {
           </strong>
         </div>
       </div>
+
+      {showMergePanel && (
+        <CustomerMergePanel
+          customers={allCustomers}
+          onMerge={onMerge}
+          onIgnore={handleIgnorePair}
+          onClose={() => setShowMergePanel(false)}
+        />
+      )}
 
       {visibleCustomers.length === 0 ? (
         <p className="empty-tip">

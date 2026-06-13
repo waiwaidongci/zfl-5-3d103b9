@@ -47,6 +47,7 @@ const RULE_ID = {
   PAYMENT_OVERDUE: 'payment-overdue',
   CUSTOMER_CONFLICT_ABANDONED: 'customer-conflict-abandoned',
   CUSTOMER_CONFLICT_DEALED_NO_ORDER: 'customer-conflict-dealed-no-order',
+  CUSTOMER_DUPLICATE_SUSPECTED: 'customer-duplicate-suspected',
   INVENTORY_DISCREPANCY: 'inventory-discrepancy'
 };
 
@@ -73,6 +74,7 @@ const RULE_LABELS = {
   [RULE_ID.PAYMENT_OVERDUE]: '对账单确认超30天未付清',
   [RULE_ID.CUSTOMER_CONFLICT_ABANDONED]: '客户询价已放弃但有有效订单',
   [RULE_ID.CUSTOMER_CONFLICT_DEALED_NO_ORDER]: '客户询价已成交但无有效订单',
+  [RULE_ID.CUSTOMER_DUPLICATE_SUSPECTED]: '疑似重复客户',
   [RULE_ID.INVENTORY_DISCREPANCY]: '盘点差异未处理'
 };
 
@@ -99,6 +101,7 @@ const RULE_META = {
   [RULE_ID.PAYMENT_OVERDUE]: { category: CATEGORY.SETTLEMENT, severity: SEVERITY.WARNING, autoFixable: false },
   [RULE_ID.CUSTOMER_CONFLICT_ABANDONED]: { category: CATEGORY.CUSTOMER, severity: SEVERITY.WARNING, autoFixable: false },
   [RULE_ID.CUSTOMER_CONFLICT_DEALED_NO_ORDER]: { category: CATEGORY.CUSTOMER, severity: SEVERITY.WARNING, autoFixable: false },
+  [RULE_ID.CUSTOMER_DUPLICATE_SUSPECTED]: { category: CATEGORY.CUSTOMER, severity: SEVERITY.INFO, autoFixable: false },
   [RULE_ID.INVENTORY_DISCREPANCY]: { category: CATEGORY.INVENTORY_DISCREPANCY, severity: SEVERITY.WARNING, autoFixable: false }
 };
 
@@ -638,6 +641,94 @@ function checkCustomerStatusConflict(inquiries, orders) {
   return issues;
 }
 
+function checkCustomerDuplicates(inquiries, orders, followUps) {
+  const issues = [];
+  const customerMap = {};
+
+  const allRecords = [
+    ...inquiries.map((i) => ({ name: i.customerName, phone: i.customerPhone })),
+    ...orders.filter((o) => !o.cancelledAt).map((o) => ({ name: o.customerName, phone: o.customerPhone })),
+    ...(followUps || []).map((f) => ({ name: f.customerName, phone: f.customerPhone }))
+  ];
+
+  allRecords.forEach((r) => {
+    if (!r.name || !r.phone) return;
+    const key = `${r.name.trim()}__${r.phone.trim()}`;
+    if (!customerMap[key]) {
+      customerMap[key] = { name: r.name.trim(), phone: r.phone.trim() };
+    }
+  });
+
+  const customers = Object.values(customerMap);
+  const processedPairs = new Set();
+
+  for (let i = 0; i < customers.length; i++) {
+    for (let j = i + 1; j < customers.length; j++) {
+      const a = customers[i];
+      const b = customers[j];
+      const pairKey = [`${a.name}__${a.phone}`, `${b.name}__${b.phone}`].sort().join('||');
+      if (processedPairs.has(pairKey)) continue;
+      processedPairs.add(pairKey);
+
+      let score = 0;
+      const reasons = [];
+
+      const normPhoneA = a.phone.replace(/[\s\-—–()（）]/g, '').replace(/^\+?86/, '').replace(/^0+/, '');
+      const normPhoneB = b.phone.replace(/[\s\-—–()（）]/g, '').replace(/^\+?86/, '').replace(/^0+/, '');
+
+      if (normPhoneA === normPhoneB && normPhoneA.length >= 7) {
+        score += 60;
+        reasons.push('手机号归一后相同');
+      } else if (normPhoneA.length > 0 && normPhoneB.length > 0) {
+        if (normPhoneA.endsWith(normPhoneB) || normPhoneB.endsWith(normPhoneA)) {
+          const shorter = Math.min(normPhoneA.length, normPhoneB.length);
+          const longer = Math.max(normPhoneA.length, normPhoneB.length);
+          if (longer - shorter <= 3 && shorter / longer >= 0.7) {
+            score += 35;
+            reasons.push('手机号高度相似');
+          }
+        }
+      }
+
+      const normNameA = a.name.replace(/[\s·•・]/g, '').toLowerCase();
+      const normNameB = b.name.replace(/[\s·•・]/g, '').toLowerCase();
+
+      if (normNameA === normNameB && normNameA.length >= 2) {
+        score += 40;
+        reasons.push('姓名归一后相同');
+      } else if (normNameA.length > 0 && normNameB.length > 0) {
+        if (normNameA.includes(normNameB) || normNameB.includes(normNameA)) {
+          const shorter = Math.min(normNameA.length, normNameB.length);
+          const longer = Math.max(normNameA.length, normNameB.length);
+          if (shorter / longer >= 0.7) {
+            score += 25;
+            reasons.push('姓名高度相似');
+          }
+        }
+      }
+
+      if (score >= 50) {
+        issues.push(createIssue(RULE_ID.CUSTOMER_DUPLICATE_SUSPECTED, {
+          id: `customer-duplicate-${pairKey}`,
+          title: `疑似重复客户「${a.name}」与「${b.name}」`,
+          description: `客户「${a.name}」（${a.phone}）与「${b.name}」（${b.phone}）相似度评分 ${Math.min(score, 100)} 分，原因：${reasons.join('、')}。可能为同一客户的不同记录。`,
+          suggestion: '在客户档案中使用「合并与去重」功能进行合并或忽略',
+          entityType: 'inquiries',
+          customerName: `${a.name} / ${b.name}`,
+          entitySnapshot: {
+            customerA: { name: a.name, phone: a.phone },
+            customerB: { name: b.name, phone: b.phone },
+            score: Math.min(score, 100),
+            reasons
+          }
+        }));
+      }
+    }
+  }
+
+  return issues;
+}
+
 function checkInventoryDiscrepancies(inventoryTasks, works) {
   const issues = [];
   const FIELD_LABELS = { exhibit: '展态', sale: '销售状态', price: '价格', existence: '存在性' };
@@ -708,6 +799,7 @@ function runAllDiagnostics(data) {
     ...checkSettlementWorkInconsistent(works, orders, statements || []),
     ...checkPaymentConsistency(statements || []),
     ...checkCustomerStatusConflict(inquiries, orders),
+    ...checkCustomerDuplicates(inquiries, orders, followUps || []),
     ...checkInventoryDiscrepancies(inventoryTasks || [], works)
   ];
 
@@ -782,6 +874,7 @@ export {
   checkSettlementWorkInconsistent,
   checkPaymentConsistency,
   checkCustomerStatusConflict,
+  checkCustomerDuplicates,
   checkInventoryDiscrepancies,
   runAllDiagnostics,
   detectAllAnomalies
