@@ -591,7 +591,9 @@ function calculateTimeDimensionFunnel(works, orders, inquiries, statements, pres
   const bookingStageWorks = allStageDates.filter(
     (wd) =>
       isDateInRange(wd.bookingDate, range.start, range.end) &&
-      wd.bookingDate !== null
+      wd.bookingDate !== null &&
+      wd.activeOrder &&
+      !wd.isCancelled
   );
 
   const dealStageWorks = allStageDates.filter(
