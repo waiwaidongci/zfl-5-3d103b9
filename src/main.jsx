@@ -9,12 +9,9 @@ import SalesFunnel from './SalesFunnel.jsx';
 import { buildCustomerProfile, executeCustomerMerge, formatCustomerDisplay } from './customerUtils.js';
 import { historyManager, OPERATION_TYPES, OPERATION_LABELS, STORAGE_KEYS } from './historyManager.js';
 import MigrationWizard from './MigrationWizard.jsx';
-
-const iso = (offset = 0) => {
-  const date = new Date();
-  date.setDate(date.getDate() + offset);
-  return date.toISOString().slice(0, 10);
-};
+import { CSV_COLUMNS, generateDefaultMapping } from './csvHeaders.js';
+import { parseCSV } from './csvParser.js';
+import { iso, validateRow, computeImportPreview } from './csvValidator.js';
 
 const DEFAULT_COMMISSION_RATE = 0.35;
 
@@ -65,73 +62,6 @@ function useStorage(key, initial) {
 }
 
 const INQUIRY_STATUS = ['待跟进', '跟进中', '已成交', '已放弃'];
-const VALID_EXHIBIT = ['展出中', '库房', '借展', '退回'];
-const VALID_SALE = ['待售', '已预订', '已售'];
-const CSV_COLUMNS = ['艺术家', '作品名', '价格', '入库日期', '展态', '销售状态'];
-const CSV_COLUMN_ALIASES = {
-  '艺术家': ['艺术家', '作者', '画家', '创作者', 'artist', 'Artist', 'ARTIST', '艺术家名称', '艺术家姓名'],
-  '作品名': ['作品名', '作品名称', '标题', '名称', 'title', 'Title', 'TITLE', '作品标题', '画作名称'],
-  '价格': ['价格', '售价', '定价', 'price', 'Price', 'PRICE', '寄售价格', '市场价', '金额'],
-  '入库日期': ['入库日期', '日期', '时间', 'date', 'Date', 'DATE', '入仓日期', '到店日期', '创作日期'],
-  '展态': ['展态', '状态', '展览状态', 'exhibit', 'Exhibit', 'EXHIBIT', '位置', '存放位置'],
-  '销售状态': ['销售状态', '销售', '出售状态', 'sale', 'Sale', 'SALE', '售卖状态', '是否可售']
-};
-const normalizeHeader = (header) => {
-  const trimmed = header.trim().toLowerCase();
-  for (const [standardColumn, aliases] of Object.entries(CSV_COLUMN_ALIASES)) {
-    for (const alias of aliases) {
-      if (trimmed === alias.toLowerCase()) {
-        return standardColumn;
-      }
-    }
-  }
-  return null;
-};
-const isNumericCell = (cell) => {
-  const cleaned = cell.trim().replace(/[￥¥,，\s]/g, '');
-  return cleaned !== '' && Number.isFinite(Number(cleaned));
-};
-const isDateLikeCell = (cell) => {
-  const value = cell.trim();
-  if (!value) return false;
-  return /^\d{4}[-/年]\d{1,2}([-月/]\d{1,2})?/.test(value) || !isNaN(new Date(value).getTime());
-};
-const looksLikeUnmatchedHeader = (cells) => {
-  const nonEmptyCells = cells.map((cell) => cell.trim()).filter(Boolean);
-  if (nonEmptyCells.length < 2) return false;
-
-  const hasDataValue = nonEmptyCells.some((cell) => (
-    isNumericCell(cell) ||
-    isDateLikeCell(cell) ||
-    VALID_EXHIBIT.includes(cell) ||
-    VALID_SALE.includes(cell)
-  ));
-  if (hasDataValue) return false;
-
-  const headerKeywordPattern = /(艺术|作者|画家|创作|作品|品名|标题|名称|价格|标价|售价|定价|金额|日期|时间|入库|入仓|到店|展态|状态|位置|库位|销售|售卖|artist|title|price|date|exhibit|sale)/i;
-  const keywordHits = nonEmptyCells.filter((cell) => headerKeywordPattern.test(cell)).length;
-  return keywordHits >= Math.min(2, nonEmptyCells.length);
-};
-const generateDefaultMapping = (detectedColumns) => {
-  const mapping = {};
-  const usedTargets = new Set();
-  detectedColumns.forEach((col) => {
-    const normalized = normalizeHeader(col);
-    if (normalized && !usedTargets.has(normalized)) {
-      mapping[col] = normalized;
-      usedTargets.add(normalized);
-    }
-  });
-  return mapping;
-};
-const getMappedColumnStatus = (detectedColumns, mapping) => {
-  return detectedColumns.map((col) => ({
-    source: col,
-    target: mapping[col] || null,
-    autoMatched: mapping[col] && normalizeHeader(col) === mapping[col],
-    required: ['艺术家', '作品名', '价格'].includes(mapping[col])
-  }));
-};
 const BALANCE_STATUS = ['待支付', '已支付', '部分支付'];
 const PAYMENT_STATUS = ['待付款', '部分付款', '已付款'];
 const INVENTORY_STATUS = ['未核对', '已核对', '异常', '缺失'];
@@ -143,279 +73,6 @@ const DISCREPANCY_FIELD_LABELS = { exhibit: '展态', sale: '销售状态', pric
 const seedOrders = [
   { id: 'seed-order-jqcy03', workId: 'seed-work-jqcy03', workTitle: '旧墙采样03', workArtist: '赵以南', customerName: '张经理', customerPhone: '13800008888', dealPrice: 8600, deposit: 2580, balanceStatus: '待支付', dealDate: iso(-3), note: '老客户介绍', createdAt: iso(-3), cancelledAt: null }
 ];
-
-function parseCSVLine(line, delimiter) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    const nextChar = line[i + 1];
-
-    if (inQuotes) {
-      if (char === '"' && nextChar === '"') {
-        current += '"';
-        i++;
-      } else if (char === '"') {
-        inQuotes = false;
-      } else {
-        current += char;
-      }
-    } else {
-      if (char === '"') {
-        inQuotes = true;
-      } else if (char === delimiter) {
-        result.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-  }
-  result.push(current.trim());
-  return result;
-}
-
-function countDelimitersOutsideQuotes(line, delimiter) {
-  let count = 0;
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    const nextChar = line[i + 1];
-    if (inQuotes) {
-      if (char === '"' && nextChar === '"') {
-        i++;
-      } else if (char === '"') {
-        inQuotes = false;
-      }
-    } else {
-      if (char === '"') {
-        inQuotes = true;
-      } else if (char === delimiter) {
-        count++;
-      }
-    }
-  }
-  return count;
-}
-
-function repairSplitThousandSeparator(cells, expectedFields, priceIndex) {
-  if (cells.length <= expectedFields) return cells;
-  if (priceIndex < 0 || priceIndex >= cells.length) return cells;
-
-  const extraCells = cells.length - expectedFields;
-  const priceParts = cells.slice(priceIndex, priceIndex + extraCells + 1);
-  if (priceParts.length !== extraCells + 1) return cells;
-
-  const normalizePricePart = (s) => s.trim().replace(/[￥¥$€\s]/g, '');
-  const firstPart = normalizePricePart(priceParts[0]);
-  const restParts = priceParts.slice(1).map((part) => part.trim());
-  const validThousandParts = (
-    /^\d{1,3}$/.test(firstPart) &&
-    restParts.length > 0 &&
-    restParts.every((part, idx) => idx === restParts.length - 1
-      ? /^\d{3}(\.\d+)?$/.test(part)
-      : /^\d{3}$/.test(part))
-  );
-
-  if (!validThousandParts) {
-    return cells;
-  }
-
-  const repaired = [
-    ...cells.slice(0, priceIndex),
-    priceParts.map((part) => part.trim()).join(','),
-    ...cells.slice(priceIndex + extraCells + 1)
-  ];
-
-  return repaired.length === expectedFields ? repaired : cells;
-}
-
-function parseCSV(text, customMapping = {}) {
-  const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-  if (lines.length === 0) return { header: null, rows: [], detectedColumns: [] };
-
-  const detectDelimiter = (line) => {
-    const candidates = [',', '\t', ';', '，'];
-    let best = ',';
-    let maxCount = -1;
-    for (const d of candidates) {
-      const count = countDelimitersOutsideQuotes(line, d);
-      if (count > maxCount) {
-        maxCount = count;
-        best = d;
-      }
-    }
-    return best;
-  };
-
-  const delimiter = detectDelimiter(lines[0]);
-  const parseLine = (line) => parseCSVLine(line, delimiter);
-
-  const firstLine = parseLine(lines[0]);
-  const hasRecognizedHeader = firstLine.some(cell => {
-    const normalized = normalizeHeader(cell.trim());
-    return normalized !== null || CSV_COLUMNS.includes(cell.trim());
-  });
-  const hasHeader = hasRecognizedHeader || looksLikeUnmatchedHeader(firstLine);
-
-  let headerMap = null;
-  let dataStart = 0;
-  const rawHeader = hasHeader ? firstLine : null;
-  const detectedColumns = hasHeader ? firstLine : firstLine.map((_, i) => `列${i + 1}`);
-  const autoMapping = hasHeader ? generateDefaultMapping(firstLine) : {};
-  const activeMapping = Object.keys(customMapping).length > 0 ? customMapping : autoMapping;
-
-  if (Object.keys(activeMapping).length > 0) {
-    headerMap = {};
-    detectedColumns.forEach((cell, idx) => {
-      const normalized = cell.trim();
-      if (activeMapping[normalized] && CSV_COLUMNS.includes(activeMapping[normalized])) {
-        headerMap[activeMapping[normalized]] = idx;
-      }
-    });
-    dataStart = hasHeader ? 1 : 0;
-  } else if (hasHeader) {
-    headerMap = {};
-    firstLine.forEach((cell, idx) => {
-      const trimmed = cell.trim();
-      const normalized = normalizeHeader(trimmed);
-      const target = normalized || (CSV_COLUMNS.includes(trimmed) ? trimmed : null);
-      if (target) {
-        headerMap[target] = idx;
-      }
-    });
-    dataStart = 1;
-  }
-
-  const CSV_FIELD_KEYS = ['artist', 'title', 'price', 'inDate', 'exhibit', 'sale'];
-  const rows = [];
-  for (let i = dataStart; i < lines.length; i++) {
-    let cells = parseLine(lines[i]);
-    const priceIndex = headerMap ? headerMap['价格'] : 2;
-    cells = repairSplitThousandSeparator(cells, CSV_COLUMNS.length, priceIndex);
-    if (cells.every(c => c === '')) continue;
-
-    let row = { rawLine: lines[i], lineNumber: i + 1, rawCells: [...cells] };
-    CSV_FIELD_KEYS.forEach((key, idx) => {
-      const columnLabel = CSV_COLUMNS[idx];
-      if (headerMap && headerMap[columnLabel] !== undefined) {
-        row[key] = cells[headerMap[columnLabel]] ?? '';
-      } else {
-        row[key] = cells[idx] ?? '';
-      }
-    });
-    rows.push(row);
-  }
-
-  const mappingStatus = getMappedColumnStatus(detectedColumns, activeMapping);
-  const missingRequired = ['艺术家', '作品名', '价格'].filter(req => 
-    !mappingStatus.some(s => s.target === req)
-  );
-
-  return { 
-    header: rawHeader, 
-    rows, 
-    headerMap, 
-    detectedColumns,
-    autoMapping,
-    activeMapping,
-    mappingStatus,
-    missingRequired,
-    hasHeader
-  };
-}
-
-function validateRow(row, existingTitles, existingArtists, batchTitles, autoCreateArtists = false) {
-  const errors = [];
-  const warnings = [];
-  const info = [];
-
-  if (!row.artist || row.artist.trim() === '') {
-    errors.push('缺少艺术家');
-  }
-
-  const artistName = row.artist.trim();
-  const artistExists = existingArtists.has(artistName);
-  let artistStatus = 'existing';
-  if (artistName && !artistExists) {
-    if (autoCreateArtists) {
-      warnings.push(`艺术家"${artistName}"将自动创建`);
-      artistStatus = 'new';
-    } else {
-      errors.push(`艺术家"${artistName}"未在系统中登记`);
-    }
-  }
-
-  if (!row.title || row.title.trim() === '') {
-    errors.push('缺少作品名');
-  }
-
-  const title = row.title.trim();
-  if (title) {
-    if (existingTitles.has(title)) {
-      errors.push(`作品名"${title}"已存在`);
-    }
-    if (batchTitles.has(title)) {
-      errors.push(`作品名"${title}"在导入列表中重复`);
-    }
-  }
-
-  const priceRaw = row.price.trim();
-  let price = null;
-  if (priceRaw === '') {
-    errors.push('缺少价格');
-  } else {
-    const cleaned = priceRaw.replace(/[￥¥,，\s]/g, '');
-    price = Number(cleaned);
-    if (isNaN(price) || price <= 0 || !isFinite(price)) {
-      errors.push(`价格"${row.price}"格式非法`);
-    }
-  }
-
-  let inDate = row.inDate.trim();
-  if (inDate && !/^\d{4}-\d{2}-\d{2}$/.test(inDate)) {
-    const parsed = new Date(inDate);
-    if (isNaN(parsed.getTime())) {
-      errors.push(`入库日期"${row.inDate}"格式非法，应为YYYY-MM-DD`);
-    } else {
-      inDate = parsed.toISOString().slice(0, 10);
-      info.push(`入库日期已自动转换为"${inDate}"`);
-    }
-  }
-
-  const exhibit = row.exhibit.trim() || '展出中';
-  if (exhibit && !VALID_EXHIBIT.includes(exhibit)) {
-    errors.push(`展态"${row.exhibit}"无效，应为：${VALID_EXHIBIT.join('、')}`);
-  }
-
-  const sale = row.sale.trim() || '待售';
-  if (sale && !VALID_SALE.includes(sale)) {
-    errors.push(`销售状态"${row.sale}"无效，应为：${VALID_SALE.join('、')}`);
-  }
-  const normalizedSale = VALID_SALE.includes(sale) ? sale : '待售';
-  const safeSale = normalizedSale === '已售' ? '待售' : normalizedSale;
-  if (normalizedSale === '已售') {
-    warnings.push('「已售」状态需通过订单登记，导入后为「待售」');
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-    info,
-    artistStatus,
-    cleaned: {
-      artist: artistName,
-      title,
-      price: price ?? 0,
-      inDate: inDate || iso(0),
-      exhibit: VALID_EXHIBIT.includes(exhibit) ? exhibit : '展出中',
-      sale: safeSale
-    }
-  };
-}
 
 function App() {
   const [artists, setArtists] = useStorage('zfl-5-artists', seedArtists);
@@ -1773,73 +1430,13 @@ function App() {
     }
 
     const mappingToUse = useAutoMapping ? {} : columnMapping;
-    const parsed = parseCSV(batchCsvText, mappingToUse);
-    
+    const preview = computeImportPreview(batchCsvText, mappingToUse, works, artists, autoCreateArtists);
+
     if (useAutoMapping || Object.keys(columnMapping).length === 0) {
-      setColumnMapping(parsed.activeMapping);
+      setColumnMapping(preview.activeMapping);
     }
 
-    const existingTitles = new Set(works.map((w) => w.title));
-    const existingArtists = new Set(artists.map((a) => a.name));
-    const batchTitles = new Set();
-    const newArtistNames = new Set();
-    const validRows = [];
-    const skippedRows = [];
-    const warningRows = [];
-    const errorRows = [];
-
-    parsed.rows.forEach((row) => {
-      const result = validateRow(row, existingTitles, existingArtists, batchTitles, autoCreateArtists);
-      if (result.valid) {
-        batchTitles.add(result.cleaned.title);
-        const rowData = { 
-          ...row, 
-          cleaned: result.cleaned, 
-          warnings: result.warnings || [],
-          info: result.info || [],
-          artistStatus: result.artistStatus
-        };
-        validRows.push(rowData);
-        if (result.artistStatus === 'new') {
-          newArtistNames.add(result.cleaned.artist);
-        }
-        if ((result.warnings && result.warnings.length > 0) || (result.info && result.info.length > 0)) {
-          warningRows.push(rowData);
-        }
-      } else {
-        const hasArtistError = result.errors.some(e => e.includes('未在系统中登记'));
-        if (hasArtistError && !autoCreateArtists) {
-          skippedRows.push({ ...row, errors: result.errors, skipReason: '艺术家未登记' });
-        } else {
-          errorRows.push({ ...row, errors: result.errors });
-        }
-      }
-    });
-
-    const newArtists = Array.from(newArtistNames).map(name => ({
-      id: crypto.randomUUID(),
-      name,
-      phone: '',
-      style: '',
-      note: '批量导入自动创建'
-    }));
-
-    setBatchPreview({
-      validRows,
-      errorRows,
-      skippedRows,
-      warningRows,
-      newArtists,
-      totalRows: parsed.rows.length,
-      header: parsed.header,
-      headerMap: parsed.headerMap,
-      detectedColumns: parsed.detectedColumns,
-      mappingStatus: parsed.mappingStatus,
-      missingRequired: parsed.missingRequired,
-      autoMapping: parsed.autoMapping,
-      activeMapping: parsed.activeMapping,
-      hasHeader: parsed.hasHeader
-    });
+    setBatchPreview(preview);
     setImportStep('mapping');
   }
 
@@ -1856,66 +1453,21 @@ function App() {
       delete newMapping[sourceColumn];
     }
     setColumnMapping(newMapping);
-    
+
     if (batchPreview) {
-      const parsed = parseCSV(batchCsvText, newMapping);
-      const existingTitles = new Set(works.map((w) => w.title));
-      const existingArtists = new Set(artists.map((a) => a.name));
-      const batchTitles = new Set();
-      const newArtistNames = new Set();
-      const validRows = [];
-      const skippedRows = [];
-      const warningRows = [];
-      const errorRows = [];
-
-      parsed.rows.forEach((row) => {
-        const result = validateRow(row, existingTitles, existingArtists, batchTitles, autoCreateArtists);
-        if (result.valid) {
-          batchTitles.add(result.cleaned.title);
-          const rowData = { 
-            ...row, 
-            cleaned: result.cleaned, 
-            warnings: result.warnings || [],
-            info: result.info || [],
-            artistStatus: result.artistStatus
-          };
-          validRows.push(rowData);
-          if (result.artistStatus === 'new') {
-            newArtistNames.add(result.cleaned.artist);
-          }
-          if ((result.warnings && result.warnings.length > 0) || (result.info && result.info.length > 0)) {
-            warningRows.push(rowData);
-          }
-        } else {
-          const hasArtistError = result.errors.some(e => e.includes('未在系统中登记'));
-          if (hasArtistError && !autoCreateArtists) {
-            skippedRows.push({ ...row, errors: result.errors, skipReason: '艺术家未登记' });
-          } else {
-            errorRows.push({ ...row, errors: result.errors });
-          }
-        }
-      });
-
-      const newArtists = Array.from(newArtistNames).map(name => ({
-        id: crypto.randomUUID(),
-        name,
-        phone: '',
-        style: '',
-        note: '批量导入自动创建'
-      }));
-
+      const preview = computeImportPreview(batchCsvText, newMapping, works, artists, autoCreateArtists);
       setBatchPreview({
         ...batchPreview,
-        validRows,
-        errorRows,
-        skippedRows,
-        warningRows,
-        newArtists,
-        totalRows: parsed.rows.length,
-        headerMap: parsed.headerMap,
-        mappingStatus: parsed.mappingStatus,
-        missingRequired: parsed.missingRequired,
-        activeMapping: parsed.activeMapping
+        validRows: preview.validRows,
+        errorRows: preview.errorRows,
+        skippedRows: preview.skippedRows,
+        warningRows: preview.warningRows,
+        newArtists: preview.newArtists,
+        totalRows: preview.totalRows,
+        headerMap: preview.headerMap,
+        mappingStatus: preview.mappingStatus,
+        missingRequired: preview.missingRequired,
+        activeMapping: preview.activeMapping
       });
     }
   }
