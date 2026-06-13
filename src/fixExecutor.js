@@ -5,7 +5,8 @@ const STORAGE_KEYS = {
   orders: 'zfl-5-orders',
   statements: 'zfl-5-statements',
   loans: 'zfl-5-loans',
-  inventoryTasks: 'zfl-5-inventory-tasks'
+  inventoryTasks: 'zfl-5-inventory-tasks',
+  followUps: 'zfl-5-follow-ups'
 };
 
 function generateFixPreview(issues, data) {
@@ -196,7 +197,8 @@ function applyFixes(patches, data) {
     loans: [...(data.loans || [])],
     inventoryTasks: (data.inventoryTasks || []).map((t) => ({ ...t, items: [...(t.items || [])] })),
     statements: [...(data.statements || [])],
-    artists: [...(data.artists || [])]
+    artists: [...(data.artists || [])],
+    followUps: [...(data.followUps || [])]
   };
 
   patches.forEach((patch) => {

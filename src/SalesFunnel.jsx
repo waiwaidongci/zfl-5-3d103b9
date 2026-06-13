@@ -70,6 +70,52 @@ function SalesFunnel({
   const [timePreset, setTimePreset] = useState(TIME_RANGE_PRESETS.THIS_MONTH);
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [customDateError, setCustomDateError] = useState(null);
+
+  const validateCustomDateRange = useCallback((start, end) => {
+    if (timePreset !== TIME_RANGE_PRESETS.CUSTOM) {
+      setCustomDateError(null);
+      return true;
+    }
+    if (!start || !end) {
+      setCustomDateError('请选择完整的开始和结束日期');
+      return false;
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      setCustomDateError('日期格式不合法');
+      return false;
+    }
+    if (startDate > endDate) {
+      setCustomDateError('开始日期不能晚于结束日期');
+      return false;
+    }
+    setCustomDateError(null);
+    return true;
+  }, [timePreset]);
+
+  const handleCustomStartChange = useCallback((value) => {
+    setCustomStartDate(value);
+    validateCustomDateRange(value, customEndDate);
+    setSelectedStage(null);
+  }, [customEndDate, validateCustomDateRange]);
+
+  const handleCustomEndChange = useCallback((value) => {
+    setCustomEndDate(value);
+    validateCustomDateRange(customStartDate, value);
+    setSelectedStage(null);
+  }, [customStartDate, validateCustomDateRange]);
+
+  const handleTimePresetChange = useCallback((preset) => {
+    setTimePreset(preset);
+    setSelectedStage(null);
+    if (preset !== TIME_RANGE_PRESETS.CUSTOM) {
+      setCustomDateError(null);
+    } else {
+      validateCustomDateRange(customStartDate, customEndDate);
+    }
+  }, [customStartDate, customEndDate, validateCustomDateRange]);
 
   const selectedWorkId = propSelectedWorkId ?? internalSelectedWorkId;
 
@@ -94,13 +140,45 @@ function SalesFunnel({
     [works, orders, inquiries, statements]
   );
 
-  const timeDimensionStats = useMemo(
-    () => calculateTimeDimensionFunnel(
+  const timeDimensionStats = useMemo(() => {
+    if (timePreset === TIME_RANGE_PRESETS.CUSTOM && customDateError) {
+      return {
+        range: { start: null, end: null, startDate: null, endDate: null },
+        preset: timePreset,
+        stages: [
+          { stage: 'inquiry', label: '询价', count: 0, amount: 0, works: [] },
+          { stage: 'booking', label: '预订', count: 0, amount: 0, works: [] },
+          { stage: 'deal', label: '成交', count: 0, amount: 0, works: [] },
+          { stage: 'settlement', label: '结算', count: 0, amount: 0, works: [] }
+        ],
+        conversionRates: [
+          { stage: 'inquiry', fromPrevious: null, fromFirst: null },
+          { stage: 'booking', fromPrevious: 0, fromFirst: 0 },
+          { stage: 'deal', fromPrevious: 0, fromFirst: 0 },
+          { stage: 'settlement', fromPrevious: 0, fromFirst: 0 }
+        ],
+        summary: {
+          inquiryCount: 0,
+          bookingCount: 0,
+          dealCount: 0,
+          settlementCount: 0,
+          dealAmount: 0,
+          settlementAmount: 0,
+          averageDealCycle: null,
+          averageBalanceCycle: null,
+          cancelledCount: 0,
+          missingLogsCount: 0,
+          dealCycleSampleCount: 0,
+          balanceCycleSampleCount: 0
+        },
+        _invalidDateRange: true
+      };
+    }
+    return calculateTimeDimensionFunnel(
       works, orders, inquiries, statements,
       timePreset, customStartDate, customEndDate
-    ),
-    [works, orders, inquiries, statements, timePreset, customStartDate, customEndDate]
-  );
+    );
+  }, [works, orders, inquiries, statements, timePreset, customStartDate, customEndDate, customDateError]);
 
   const activeStats = viewMode === FUNNEL_VIEW_MODES.TIME_DIMENSION
     ? timeDimensionStats
@@ -155,10 +233,7 @@ function SalesFunnel({
           key={value}
           type="button"
           className={`time-preset-btn ${timePreset === value ? 'active' : ''}`}
-          onClick={() => {
-            setTimePreset(value);
-            setSelectedStage(null);
-          }}
+          onClick={() => handleTimePresetChange(value)}
         >
           {TIME_RANGE_LABELS[value]}
         </button>
@@ -170,10 +245,8 @@ function SalesFunnel({
             <input
               type="date"
               value={customStartDate}
-              onChange={(e) => {
-                setCustomStartDate(e.target.value);
-                setSelectedStage(null);
-              }}
+              onChange={(e) => handleCustomStartChange(e.target.value)}
+              className={customDateError ? 'error' : ''}
             />
           </label>
           <label>
@@ -181,12 +254,15 @@ function SalesFunnel({
             <input
               type="date"
               value={customEndDate}
-              onChange={(e) => {
-                setCustomEndDate(e.target.value);
-                setSelectedStage(null);
-              }}
+              onChange={(e) => handleCustomEndChange(e.target.value)}
+              className={customDateError ? 'error' : ''}
             />
           </label>
+          {customDateError && (
+            <span className="custom-date-error">
+              <AlertTriangle size={12} /> {customDateError}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -195,7 +271,9 @@ function SalesFunnel({
   const renderTimeDimensionSummary = () => {
     const { summary } = timeDimensionStats;
     const { range } = timeDimensionStats;
+    const isInvalidRange = timeDimensionStats._invalidDateRange;
     const rangeLabel = (() => {
+      if (isInvalidRange) return '日期范围无效';
       if (timePreset !== TIME_RANGE_PRESETS.CUSTOM) {
         return TIME_RANGE_LABELS[timePreset];
       }
@@ -207,15 +285,20 @@ function SalesFunnel({
     return (
       <div className="time-funnel-summary">
         <div className="time-funnel-header-info">
-          <span className="time-range-label">
+          <span className={`time-range-label ${isInvalidRange ? 'invalid' : ''}`}>
             <Calendar size={14} /> {rangeLabel}
           </span>
-          {summary.cancelledCount > 0 && (
+          {isInvalidRange && (
+            <span className="time-stat-chip warning">
+              <AlertTriangle size={12} /> 请修正日期范围后查看统计
+            </span>
+          )}
+          {!isInvalidRange && summary.cancelledCount > 0 && (
             <span className="time-stat-chip cancelled">
               <XCircle size={12} /> 撤销订单 {summary.cancelledCount} 单
             </span>
           )}
-          {summary.missingLogsCount > 0 && (
+          {!isInvalidRange && summary.missingLogsCount > 0 && (
             <span className="time-stat-chip warning">
               <AlertTriangle size={12} /> 历史数据缺日志 {summary.missingLogsCount} 条
             </span>

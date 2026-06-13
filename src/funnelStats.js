@@ -274,11 +274,19 @@ function getTimeRangeBounds(preset, customStart, customEnd) {
   const now = new Date();
   let start, end;
 
+  const getDefaultThisMonth = () => {
+    const s = new Date(now.getFullYear(), now.getMonth(), 1);
+    const e = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    return { s, e };
+  };
+
   switch (preset) {
-    case TIME_RANGE_PRESETS.THIS_MONTH:
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    case TIME_RANGE_PRESETS.THIS_MONTH: {
+      const { s, e } = getDefaultThisMonth();
+      start = s;
+      end = e;
       break;
+    }
     case TIME_RANGE_PRESETS.LAST_30_DAYS:
       end = new Date(now);
       end.setHours(23, 59, 59, 999);
@@ -293,15 +301,34 @@ function getTimeRangeBounds(preset, customStart, customEnd) {
       start.setDate(start.getDate() - 89);
       start.setHours(0, 0, 0, 0);
       break;
-    case TIME_RANGE_PRESETS.CUSTOM:
-      start = customStart ? new Date(customStart) : null;
-      end = customEnd ? new Date(customEnd) : null;
-      if (end) end.setHours(23, 59, 59, 999);
-      if (start) start.setHours(0, 0, 0, 0);
+    case TIME_RANGE_PRESETS.CUSTOM: {
+      const parsedStart = customStart ? new Date(customStart) : null;
+      const parsedEnd = customEnd ? new Date(customEnd) : null;
+      const startValid = parsedStart && !isNaN(parsedStart.getTime());
+      const endValid = parsedEnd && !isNaN(parsedEnd.getTime());
+
+      if (!startValid || !endValid) {
+        const { s, e } = getDefaultThisMonth();
+        start = s;
+        end = e;
+      } else if (parsedStart > parsedEnd) {
+        start = new Date(parsedEnd);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(parsedEnd);
+        end.setHours(23, 59, 59, 999);
+      } else {
+        start = parsedStart;
+        start.setHours(0, 0, 0, 0);
+        end = parsedEnd;
+        end.setHours(23, 59, 59, 999);
+      }
       break;
-    default:
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    }
+    default: {
+      const { s, e } = getDefaultThisMonth();
+      start = s;
+      end = e;
+    }
   }
 
   return {

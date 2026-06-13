@@ -2067,6 +2067,32 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-radius: 6px;
 }
 
+.custom-date-inputs input.error {
+  border-color: #dc2626;
+  background: #fef2f2;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.1);
+}
+
+.custom-date-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #b91c1c;
+  margin-left: 4px;
+}
+
+.time-range-label.invalid {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
 .time-funnel-summary {
   margin-bottom: 20px;
   padding: 18px;
