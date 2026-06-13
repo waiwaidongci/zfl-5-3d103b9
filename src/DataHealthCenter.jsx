@@ -2,12 +2,12 @@ import React, { useMemo, useState, useCallback } from 'react';
 import {
   AlertTriangle, CheckCircle2, XCircle, RefreshCw, Eye,
   Filter, Search, ChevronDown, ChevronUp, Shield,
-  AlertCircle, Info, Wrench
+  AlertCircle, Info, Wrench, Users, ArrowRightLeft
 } from 'lucide-react';
 import { runAllDiagnostics, SEVERITY, CATEGORY, CATEGORY_LABELS } from './diagnosticRules.js';
 import { generateFixPreview, applyFixes } from './fixExecutor.js';
 
-function DataHealthCenter({ artists, works, orders, inquiries, loans, statements, inventoryTasks, followUps, onFixApplied }) {
+function DataHealthCenter({ artists, works, orders, inquiries, loans, statements, inventoryTasks, followUps, onFixApplied, onJumpToCustomerMerge }) {
   const [diagnosisResult, setDiagnosisResult] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedSeverity, setSelectedSeverity] = useState('all');
@@ -303,8 +303,29 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
                         {issue.entityType === 'works' && (
                           <span>{issue.entitySnapshot.artist} — {issue.entitySnapshot.title} · ¥{Number(issue.entitySnapshot.price || 0).toLocaleString()} · {issue.entitySnapshot.exhibit} · {issue.entitySnapshot.sale} · {issue.entitySnapshot.settlement}</span>
                         )}
-                        {issue.entityType === 'inquiries' && (
+                        {issue.entityType === 'inquiries' && issue.jumpTarget !== 'customerMerge' && (
                           <span>{issue.entitySnapshot.name || issue.entitySnapshot.customerName} · {issue.entitySnapshot.phone || ''}</span>
+                        )}
+                        {issue.jumpTarget === 'customerMerge' && issue.entitySnapshot.customerA && issue.entitySnapshot.customerB && (
+                          <div className="customer-duplicate-snapshot">
+                            <div className="customer-duplicate-pair">
+                              <span className="customer-duplicate-item">
+                                <Users size={12} /> {issue.entitySnapshot.customerA.name}
+                                <span className="customer-duplicate-phone">· {issue.entitySnapshot.customerA.phone}</span>
+                              </span>
+                              <ArrowRightLeft size={14} className="customer-duplicate-arrow" />
+                              <span className="customer-duplicate-item">
+                                <Users size={12} /> {issue.entitySnapshot.customerB.name}
+                                <span className="customer-duplicate-phone">· {issue.entitySnapshot.customerB.phone}</span>
+                              </span>
+                            </div>
+                            <div className="customer-duplicate-meta">
+                              <span>相似度 {issue.entitySnapshot.score} 分</span>
+                              {issue.entitySnapshot.reasons?.map((r, i) => (
+                                <span key={i} className="customer-duplicate-reason">{r}</span>
+                              ))}
+                            </div>
+                          </div>
                         )}
                         {issue.entityType === 'orders' && (
                           <span>{issue.entitySnapshot.workTitle} · {issue.entitySnapshot.customerName} · ¥{Number(issue.entitySnapshot.dealPrice || 0).toLocaleString()}</span>
@@ -318,6 +339,16 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
                         {issue.entityType === 'statements' && (
                           <span>{issue.entitySnapshot.artist} · {issue.entitySnapshot.startDate}~{issue.entitySnapshot.endDate} · 应付¥{Number(issue.entitySnapshot.totalPayable || 0).toLocaleString()} · 已付¥{Number(issue.entitySnapshot.paidAmount || 0).toLocaleString()}</span>
                         )}
+                      </div>
+                    )}
+                    {issue.jumpTarget === 'customerMerge' && onJumpToCustomerMerge && (
+                      <div className="health-issue-actions">
+                        <button
+                          className="health-jump-btn"
+                          onClick={() => onJumpToCustomerMerge()}
+                        >
+                          <ArrowRightLeft size={12} /> 去客户档案合并去重
+                        </button>
                       </div>
                     )}
                   </div>

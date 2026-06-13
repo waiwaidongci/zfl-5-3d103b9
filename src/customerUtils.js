@@ -21,6 +21,22 @@ function getCustomerKey(name, phone) {
   return `${name.trim()}__${phone.trim()}`;
 }
 
+function formatCustomerDisplay(record, showPhone = true) {
+  if (!record) return { namePart: '', phonePart: '', isMerged: false };
+  const { customerName, customerPhone, originalCustomerName, originalCustomerPhone } = record;
+
+  const hasOriginalName = originalCustomerName && originalCustomerName !== customerName;
+  const hasOriginalPhone = originalCustomerPhone && originalCustomerPhone !== customerPhone;
+
+  return {
+    name: customerName || '',
+    originalName: hasOriginalName ? originalCustomerName : null,
+    phone: showPhone ? (customerPhone || '') : '',
+    originalPhone: showPhone && hasOriginalPhone ? originalCustomerPhone : null,
+    isMerged: hasOriginalName || hasOriginalPhone
+  };
+}
+
 function normalizePhone(phone) {
   if (!phone) return '';
   let cleaned = phone.trim().replace(/[\s\-—–()（）]/g, '');
@@ -489,6 +505,7 @@ export {
   buildCustomerProfile,
   filterCustomers,
   getCustomerKey,
+  formatCustomerDisplay,
   normalizePhone,
   normalizeName,
   findDuplicateCustomers,

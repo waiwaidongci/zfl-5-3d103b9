@@ -22,7 +22,7 @@ import {
   Trash2,
   X
 } from 'lucide-react';
-import { CUSTOMER_STATUS } from './customerUtils.js';
+import { CUSTOMER_STATUS, formatCustomerDisplay } from './customerUtils.js';
 
 const iso = (offset = 0) => {
   const date = new Date();
@@ -92,6 +92,26 @@ function CustomerDetail({
   }, [sortedFollowUps]);
 
   const today = new Date().toISOString().slice(0, 10);
+
+  const customerMergeInfo = useMemo(() => {
+    const allRecords = [
+      ...(customer?.inquiries || []),
+      ...(customer?.orders || []),
+      ...(customerFollowUps || [])
+    ];
+    const originalNames = new Set();
+    const originalPhones = new Set();
+    allRecords.forEach((r) => {
+      const d = formatCustomerDisplay(r);
+      if (d.originalName) originalNames.add(d.originalName);
+      if (d.originalPhone) originalPhones.add(d.originalPhone);
+    });
+    return {
+      hasMerged: originalNames.size > 0 || originalPhones.size > 0,
+      originalNames: Array.from(originalNames).filter((n) => n !== customer?.name),
+      originalPhones: Array.from(originalPhones).filter((p) => p !== customer?.phone)
+    };
+  }, [customer, customerFollowUps]);
 
   function getFollowUpStatus(fu) {
     if (fu.completedAt) return 'completed';
@@ -176,6 +196,7 @@ function CustomerDetail({
   const recentActivity = useMemo(() => {
     const activities = [];
     customer.inquiries.forEach((inq) => {
+      const d = formatCustomerDisplay(inq);
       activities.push({
         type: 'inquiry',
         time: new Date(inq.createdAt).getTime(),
@@ -185,10 +206,14 @@ function CustomerDetail({
         description: '客户询价',
         status: inq.status,
         intendedPrice: inq.intendedPrice,
-        remark: inq.remark
+        remark: inq.remark,
+        originalName: d.originalName,
+        originalPhone: d.originalPhone,
+        isMerged: d.isMerged
       });
     });
     customer.orders.forEach((order) => {
+      const d = formatCustomerDisplay(order);
       activities.push({
         type: 'order',
         time: new Date(order.dealDate || order.createdAt).getTime(),
@@ -197,7 +222,10 @@ function CustomerDetail({
         workId: order.workId,
         description: '完成成交',
         dealPrice: order.dealPrice,
-        balanceStatus: order.balanceStatus
+        balanceStatus: order.balanceStatus,
+        originalName: d.originalName,
+        originalPhone: d.originalPhone,
+        isMerged: d.isMerged
       });
     });
     return activities.sort((a, b) => b.time - a.time).slice(0, 10);
@@ -274,9 +302,25 @@ function CustomerDetail({
 
       <div className="customer-detail-header">
         <div className="customer-detail-basic">
-          <h3 className="customer-detail-name">{customer.name}</h3>
+          <h3 className="customer-detail-name">
+            {customer.name}
+            {customerMergeInfo.originalNames.length > 0 && (
+              <>
+                {customerMergeInfo.originalNames.map((n, i) => (
+                  <span key={i} className="customer-detail-original">原：{n}</span>
+                ))}
+              </>
+            )}
+          </h3>
           <span className="customer-detail-contact">
             <Phone size={14} /> {customer.phone}
+            {customerMergeInfo.originalPhones.length > 0 && (
+              <>
+                {customerMergeInfo.originalPhones.map((p, i) => (
+                  <span key={i} className="customer-detail-original phone">原：{p}</span>
+                ))}
+              </>
+            )}
           </span>
           <div className="customer-detail-status-row">
             <span className={`status-select ${getStatusClass(customer.followStatus)}`}>
@@ -344,6 +388,16 @@ function CustomerDetail({
                     </span>
                   </div>
                   <div className="customer-followup-body">
+                    {(() => {
+                      const d = formatCustomerDisplay(inq);
+                      if (!d.isMerged) return null;
+                      return (
+                        <span className="customer-activity-original">
+                          原客户：{d.originalName || inq.customerName}
+                          {d.originalPhone && ` · ${d.originalPhone}`}
+                        </span>
+                      );
+                    })()}
                     {inq.intendedPrice > 0 && (
                       <span className="inquiry-price">
                         <Banknote size={12} /> 意向价 ¥{inq.intendedPrice.toLocaleString()}
@@ -674,6 +728,16 @@ function CustomerDetail({
                         </span>
                       </div>
                       <div className="customer-inquiry-body">
+                        {(() => {
+                          const d = formatCustomerDisplay(inq);
+                          if (!d.isMerged) return null;
+                          return (
+                            <span className="customer-activity-original">
+                              原客户：{d.originalName || inq.customerName}
+                              {d.originalPhone && ` · ${d.originalPhone}`}
+                            </span>
+                          );
+                        })()}
                         {inq.intendedPrice > 0 && (
                           <span className="inquiry-price">
                             <Banknote size={12} /> 意向价 ¥{inq.intendedPrice.toLocaleString()}
@@ -729,6 +793,16 @@ function CustomerDetail({
                       <span className="customer-order-artist">{work?.artist || '-'}</span>
                     </div>
                     <div className="customer-order-body">
+                      {(() => {
+                        const d = formatCustomerDisplay(order);
+                        if (!d.isMerged) return null;
+                        return (
+                          <span className="customer-activity-original">
+                            原客户：{d.originalName || order.customerName}
+                            {d.originalPhone && ` · ${d.originalPhone}`}
+                          </span>
+                        );
+                      })()}
                       <span className="order-price">
                         <Banknote size={12} /> 成交价 ¥{Number(order.dealPrice || 0).toLocaleString()}
                       </span>
@@ -775,6 +849,12 @@ function CustomerDetail({
                           <><CheckCircle2 size={12} /> 完成成交</>
                         )}
                       </span>
+                      {activity.isMerged && (
+                        <span className="customer-activity-original">
+                          原：{activity.originalName || customer.name}
+                          {activity.originalPhone && ` · ${activity.originalPhone}`}
+                        </span>
+                      )}
                       <span className="customer-activity-time">
                         <Clock size={12} /> {new Date(activity.date).toLocaleDateString('zh-CN')}
                       </span>

@@ -1,13 +1,19 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { User, Phone, Banknote, Search, Filter, Eye, Receipt, MessageSquare, ChevronRight, AlertTriangle, Clock, ArrowRightLeft } from 'lucide-react';
 import { CUSTOMER_STATUS, buildCustomerProfile, filterCustomers, findDuplicateCustomers } from './customerUtils.js';
 import CustomerMergePanel from './CustomerMergePanel.jsx';
 
-function CustomerList({ inquiries, orders, followUps = [], onSelectCustomer, onMerge }) {
+function CustomerList({ inquiries, orders, followUps = [], onSelectCustomer, onMerge, forceOpenMergePanel }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('全部状态');
   const [showMergePanel, setShowMergePanel] = useState(false);
   const [ignoredPairIds, setIgnoredPairIds] = useState(new Set());
+
+  useEffect(() => {
+    if (forceOpenMergePanel) {
+      setShowMergePanel(true);
+    }
+  }, [forceOpenMergePanel]);
 
   const allCustomers = useMemo(
     () => buildCustomerProfile(inquiries, orders, followUps),

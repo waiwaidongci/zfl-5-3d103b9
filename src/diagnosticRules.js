@@ -712,9 +712,10 @@ function checkCustomerDuplicates(inquiries, orders, followUps) {
           id: `customer-duplicate-${pairKey}`,
           title: `疑似重复客户「${a.name}」与「${b.name}」`,
           description: `客户「${a.name}」（${a.phone}）与「${b.name}」（${b.phone}）相似度评分 ${Math.min(score, 100)} 分，原因：${reasons.join('、')}。可能为同一客户的不同记录。`,
-          suggestion: '在客户档案中使用「合并与去重」功能进行合并或忽略',
+          suggestion: '点击右侧按钮跳转到客户档案合并去重面板',
           entityType: 'inquiries',
           customerName: `${a.name} / ${b.name}`,
+          jumpTarget: 'customerMerge',
           entitySnapshot: {
             customerA: { name: a.name, phone: a.phone },
             customerB: { name: b.name, phone: b.phone },

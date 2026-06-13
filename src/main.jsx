@@ -6,7 +6,7 @@ import CustomerList from './CustomerList.jsx';
 import CustomerDetail from './CustomerDetail.jsx';
 import DataHealthCenter from './DataHealthCenter.jsx';
 import SalesFunnel from './SalesFunnel.jsx';
-import { buildCustomerProfile, executeCustomerMerge } from './customerUtils.js';
+import { buildCustomerProfile, executeCustomerMerge, formatCustomerDisplay } from './customerUtils.js';
 import { historyManager, OPERATION_TYPES, OPERATION_LABELS, STORAGE_KEYS } from './historyManager.js';
 import MigrationWizard from './MigrationWizard.jsx';
 
@@ -467,6 +467,7 @@ function App() {
   const [showSalesFunnel, setShowSalesFunnel] = useState(false);
   const [selectedFunnelWorkId, setSelectedFunnelWorkId] = useState(null);
   const [selectedCustomerKey, setSelectedCustomerKey] = useState(null);
+  const [customerMergeOpenTrigger, setCustomerMergeOpenTrigger] = useState(0);
 
   const [historyState, setHistoryState] = useState(() => historyManager.getState());
   const [toasts, setToasts] = useState([]);
@@ -1070,6 +1071,13 @@ function App() {
       }
     );
     setSelectedCustomerKey(null);
+  }
+
+  function handleJumpToCustomerMerge() {
+    setShowHealthCenter(false);
+    setShowSalesFunnel(false);
+    setSelectedCustomerKey(null);
+    setCustomerMergeOpenTrigger((t) => t + 1);
   }
 
   const allCustomers = useMemo(
@@ -3009,7 +3017,26 @@ function App() {
                 <div className="inquiry-head">
                   <div>
                     <strong className="inquiry-work">{inq.workTitle}</strong>
-                    <span className="inquiry-customer"><User size={12} />{inq.customerName} · <Phone size={12} />{inq.customerPhone}</span>
+                    <span className="inquiry-customer">
+                      <User size={12} />
+                      {(() => {
+                        const d = formatCustomerDisplay(inq);
+                        if (!d.isMerged) return <>{inq.customerName} · <Phone size={12} />{inq.customerPhone}</>;
+                        return (
+                          <>
+                            <span className="customer-merged">
+                              <span className="customer-current">{inq.customerName}</span>
+                              {d.originalName && <span className="customer-original">原：{d.originalName}</span>}
+                            </span>
+                             · <Phone size={12} />
+                            <span className="customer-merged-phone">
+                              <span className="customer-current">{inq.customerPhone}</span>
+                              {d.originalPhone && <span className="customer-original">原：{d.originalPhone}</span>}
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </span>
                   </div>
                   <div className="status-dropdown">
                     <select
@@ -3139,7 +3166,26 @@ function App() {
                     <div className="inquiry-head">
                       <div>
                         <strong className="inquiry-work">{order.workTitle}</strong>
-                        <span className="inquiry-customer">{order.workArtist} · <User size={12} />{order.customerName} · <Phone size={12} />{order.customerPhone}</span>
+                        <span className="inquiry-customer">
+                          {order.workArtist} · <User size={12} />
+                          {(() => {
+                            const d = formatCustomerDisplay(order);
+                            if (!d.isMerged) return <>{order.customerName} · <Phone size={12} />{order.customerPhone}</>;
+                            return (
+                              <>
+                                <span className="customer-merged">
+                                  <span className="customer-current">{order.customerName}</span>
+                                  {d.originalName && <span className="customer-original">原：{d.originalName}</span>}
+                                </span>
+                                 · <Phone size={12} />
+                                <span className="customer-merged-phone">
+                                  <span className="customer-current">{order.customerPhone}</span>
+                                  {d.originalPhone && <span className="customer-original">原：{d.originalPhone}</span>}
+                                </span>
+                              </>
+                            );
+                          })()}
+                        </span>
                       </div>
                       <div className="status-dropdown">
                         {isCancelled ? (
@@ -3207,6 +3253,7 @@ function App() {
           followUps={followUps}
           onSelectCustomer={(key) => setSelectedCustomerKey(key)}
           onMerge={handleMergeCustomers}
+          forceOpenMergePanel={customerMergeOpenTrigger}
         />
       )}
 
@@ -3278,7 +3325,16 @@ function App() {
                             <tr key={idx}>
                               <td>{it.workTitle}</td>
                               <td>{it.saleDate}</td>
-                              <td>{it.customerName || '-'}</td>
+                              <td>{(() => {
+                                const d = formatCustomerDisplay(it);
+                                if (!d.isMerged) return <>{it.customerName || '-'}</>;
+                                return (
+                                  <span className="customer-merged">
+                                    <span className="customer-current">{it.customerName || '-'}</span>
+                                    {d.originalName && <span className="customer-original">原：{d.originalName}</span>}
+                                  </span>
+                                );
+                              })()}</td>
                               <td>¥{it.dealPrice.toLocaleString()}</td>
                               <td className="text-purple">¥{it.commission.toLocaleString()}</td>
                               <td className="text-green">¥{it.payable.toLocaleString()}</td>
@@ -3451,7 +3507,16 @@ function App() {
                               <tr key={idx}>
                                 <td>{it.workTitle}</td>
                                 <td>{it.saleDate}</td>
-                                <td>{it.customerName || '-'}</td>
+                                <td>{(() => {
+                                const d = formatCustomerDisplay(it);
+                                if (!d.isMerged) return <>{it.customerName || '-'}</>;
+                                return (
+                                  <span className="customer-merged">
+                                    <span className="customer-current">{it.customerName || '-'}</span>
+                                    {d.originalName && <span className="customer-original">原：{d.originalName}</span>}
+                                  </span>
+                                );
+                              })()}</td>
                                 <td>¥{it.dealPrice.toLocaleString()}</td>
                                 <td className="text-purple">¥{it.commission.toLocaleString()}</td>
                                 <td className="text-green">¥{it.payable.toLocaleString()}</td>
@@ -3942,6 +4007,7 @@ function App() {
           inventoryTasks={inventoryTasks}
           followUps={followUps}
           onFixApplied={handleFixApplied}
+          onJumpToCustomerMerge={handleJumpToCustomerMerge}
         />
       )}
 
@@ -4049,7 +4115,19 @@ function App() {
                     <div>
                       <strong>{work.title}</strong>
                       <span>{work.artist}</span>
-                      {order && <span className="settlement-customer"><User size={12} />{order.customerName}</span>}
+                      {order && <span className="settlement-customer">
+                        <User size={12} />
+                        {(() => {
+                          const d = formatCustomerDisplay(order);
+                          if (!d.isMerged) return <>{order.customerName}</>;
+                          return (
+                            <span className="customer-merged">
+                              <span className="customer-current">{order.customerName}</span>
+                              {d.originalName && <span className="customer-original">原：{d.originalName}</span>}
+                            </span>
+                          );
+                        })()}
+                      </span>}
                     </div>
                     <div className="settlement-amounts">
                       <span>成交价 ¥{dealPrice.toLocaleString()}</span>

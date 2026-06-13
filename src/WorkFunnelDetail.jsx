@@ -23,6 +23,7 @@ import {
   FUNNEL_STAGE_ORDER,
   getWorkFunnelDetail
 } from './funnelStats.js';
+import { formatCustomerDisplay } from './customerUtils.js';
 import { detectAllAnomalies, SEVERITY, RULE_LABELS } from './diagnosticRules.js';
 
 function WorkFunnelDetail({
@@ -207,10 +208,30 @@ function WorkFunnelDetail({
             <div className="funnel-order-header">
               <div>
                 <strong className="funnel-order-customer">
-                  <User size={14} /> {activeOrder.customerName}
+                  <User size={14} />
+                  {(() => {
+                    const d = formatCustomerDisplay(activeOrder);
+                    if (!d.isMerged) return <>{activeOrder.customerName}</>;
+                    return (
+                      <span className="customer-merged">
+                        <span className="customer-current">{activeOrder.customerName}</span>
+                        {d.originalName && <span className="customer-original">原：{d.originalName}</span>}
+                      </span>
+                    );
+                  })()}
                 </strong>
                 <span className="funnel-order-contact">
-                  <Phone size={12} /> {activeOrder.customerPhone}
+                  <Phone size={12} />
+                  {(() => {
+                    const d = formatCustomerDisplay(activeOrder);
+                    if (!d.isMerged) return <>{activeOrder.customerPhone}</>;
+                    return (
+                      <span className="customer-merged-phone">
+                        <span className="customer-current">{activeOrder.customerPhone}</span>
+                        {d.originalPhone && <span className="customer-original">原：{d.originalPhone}</span>}
+                      </span>
+                    );
+                  })()}
                 </span>
               </div>
               <span className={`status-select status-balance-${balanceStatus}`}>
@@ -247,15 +268,30 @@ function WorkFunnelDetail({
             <MessageSquare size={16} /> 询价记录（{workInquiries.length}条）
           </h4>
           <div className="funnel-inquiries-list">
-            {workInquiries.map((inq) => (
-              <div key={inq.id} className="funnel-inquiry-item">
-                <div className="funnel-inquiry-head">
-                  <div>
-                    <strong>{inq.customerName}</strong>
-                    <span className="funnel-inquiry-contact">
-                      <Phone size={12} /> {inq.customerPhone}
-                    </span>
-                  </div>
+            {workInquiries.map((inq) => {
+              const d = formatCustomerDisplay(inq);
+              return (
+                <div key={inq.id} className="funnel-inquiry-item">
+                  <div className="funnel-inquiry-head">
+                    <div>
+                      <strong>
+                        {!d.isMerged ? inq.customerName : (
+                          <span className="customer-merged">
+                            <span className="customer-current">{inq.customerName}</span>
+                            {d.originalName && <span className="customer-original">原：{d.originalName}</span>}
+                          </span>
+                        )}
+                      </strong>
+                      <span className="funnel-inquiry-contact">
+                        <Phone size={12} />
+                        {!d.isMerged ? inq.customerPhone : (
+                          <span className="customer-merged-phone">
+                            <span className="customer-current">{inq.customerPhone}</span>
+                            {d.originalPhone && <span className="customer-original">原：{d.originalPhone}</span>}
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   <span className={`status-select status-${inq.status}`}>
                     {inq.status}
                   </span>
@@ -276,7 +312,8 @@ function WorkFunnelDetail({
                   </span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -287,15 +324,30 @@ function WorkFunnelDetail({
             <XCircle size={16} /> 已撤销订单（{cancelledOrders.length}条）
           </h4>
           <div className="funnel-inquiries-list">
-            {cancelledOrders.map((order) => (
-              <div key={order.id} className="funnel-inquiry-item order-cancelled">
-                <div className="funnel-inquiry-head">
-                  <div>
-                    <strong>{order.customerName}</strong>
-                    <span className="funnel-inquiry-contact">
-                      <Phone size={12} /> {order.customerPhone}
-                    </span>
-                  </div>
+            {cancelledOrders.map((order) => {
+              const d = formatCustomerDisplay(order);
+              return (
+                <div key={order.id} className="funnel-inquiry-item order-cancelled">
+                  <div className="funnel-inquiry-head">
+                    <div>
+                      <strong>
+                        {!d.isMerged ? order.customerName : (
+                          <span className="customer-merged">
+                            <span className="customer-current">{order.customerName}</span>
+                            {d.originalName && <span className="customer-original">原：{d.originalName}</span>}
+                          </span>
+                        )}
+                      </strong>
+                      <span className="funnel-inquiry-contact">
+                        <Phone size={12} />
+                        {!d.isMerged ? order.customerPhone : (
+                          <span className="customer-merged-phone">
+                            <span className="customer-current">{order.customerPhone}</span>
+                            {d.originalPhone && <span className="customer-original">原：{d.originalPhone}</span>}
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   <span className="status-select status-已放弃">
                     <XCircle size={12} /> 已撤销
                   </span>
@@ -312,7 +364,8 @@ function WorkFunnelDetail({
                   </span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
