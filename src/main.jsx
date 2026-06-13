@@ -10,8 +10,7 @@ import { buildCustomerProfile, executeCustomerMerge, formatCustomerDisplay } fro
 import { historyManager, OPERATION_TYPES, OPERATION_LABELS, STORAGE_KEYS } from './historyManager.js';
 import MigrationWizard from './MigrationWizard.jsx';
 import { CSV_COLUMNS, generateDefaultMapping } from './csvHeaders.js';
-import { parseCSV } from './csvParser.js';
-import { iso, validateRow, computeImportPreview } from './csvValidator.js';
+import { iso, computeImportPreview } from './csvValidator.js';
 
 const DEFAULT_COMMISSION_RATE = 0.35;
 
