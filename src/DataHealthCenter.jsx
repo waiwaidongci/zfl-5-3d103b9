@@ -7,7 +7,7 @@ import {
 import { runAllDiagnostics, SEVERITY, CATEGORY, CATEGORY_LABELS } from './diagnosticRules.js';
 import { generateFixPreview, applyFixes } from './fixExecutor.js';
 
-function DataHealthCenter({ artists, works, orders, inquiries, loans, statements, inventoryTasks, onFixApplied }) {
+function DataHealthCenter({ artists, works, orders, inquiries, loans, statements, inventoryTasks, followUps, onFixApplied }) {
   const [diagnosisResult, setDiagnosisResult] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedSeverity, setSelectedSeverity] = useState('all');
@@ -18,8 +18,8 @@ function DataHealthCenter({ artists, works, orders, inquiries, loans, statements
   const [expandedIssueId, setExpandedIssueId] = useState(null);
 
   const data = useMemo(() => ({
-    artists, works, orders, inquiries, loans, statements, inventoryTasks
-  }), [artists, works, orders, inquiries, loans, statements, inventoryTasks]);
+    artists, works, orders, inquiries, loans, statements, inventoryTasks, followUps
+  }), [artists, works, orders, inquiries, loans, statements, inventoryTasks, followUps]);
 
   const runScan = useCallback(() => {
     const result = runAllDiagnostics(data);

@@ -270,6 +270,58 @@ const TIME_RANGE_LABELS = {
   [TIME_RANGE_PRESETS.CUSTOM]: '自定义'
 };
 
+function getCustomRangeValidation(customStart, customEnd) {
+  if (!customStart || !customEnd) {
+    return { isValid: false, validationError: '请选择完整的自定义日期范围' };
+  }
+
+  const start = new Date(customStart);
+  const end = new Date(customEnd);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return { isValid: false, validationError: '日期格式不合法' };
+  }
+  if (start > end) {
+    return { isValid: false, validationError: '开始日期不能晚于结束日期' };
+  }
+  return { isValid: true, validationError: null };
+}
+
+function createEmptyTimeDimensionResult(range, preset, validationError = null) {
+  return {
+    range,
+    preset,
+    isValid: validationError ? false : true,
+    validationError,
+    _invalidDateRange: !!validationError,
+    stages: FUNNEL_STAGE_ORDER.map((stage) => ({
+      stage,
+      label: FUNNEL_STAGE_LABELS[stage],
+      count: 0,
+      amount: 0,
+      works: []
+    })),
+    conversionRates: FUNNEL_STAGE_ORDER.map((stage) => ({
+      stage,
+      fromPrevious: stage === FUNNEL_STAGES.INQUIRY ? null : 0,
+      fromFirst: stage === FUNNEL_STAGES.INQUIRY ? null : 0
+    })),
+    summary: {
+      inquiryCount: 0,
+      bookingCount: 0,
+      dealCount: 0,
+      settlementCount: 0,
+      dealAmount: 0,
+      settlementAmount: 0,
+      averageDealCycle: null,
+      averageBalanceCycle: null,
+      cancelledCount: 0,
+      missingLogsCount: 0,
+      dealCycleSampleCount: 0,
+      balanceCycleSampleCount: 0
+    }
+  };
+}
+
 function getTimeRangeBounds(preset, customStart, customEnd) {
   const now = new Date();
   let start, end;
@@ -308,11 +360,10 @@ function getTimeRangeBounds(preset, customStart, customEnd) {
       const endValid = parsedEnd && !isNaN(parsedEnd.getTime());
 
       if (!startValid || !endValid) {
-        const { s, e } = getDefaultThisMonth();
-        start = s;
-        end = e;
+        start = null;
+        end = null;
       } else if (parsedStart > parsedEnd) {
-        start = new Date(parsedEnd);
+        start = new Date(parsedStart);
         start.setHours(0, 0, 0, 0);
         end = new Date(parsedEnd);
         end.setHours(23, 59, 59, 999);
@@ -537,6 +588,17 @@ function buildAllWorkStageDates(works, orders, inquiries, statements) {
 }
 
 function calculateTimeDimensionFunnel(works, orders, inquiries, statements, preset, customStart, customEnd) {
+  if (preset === TIME_RANGE_PRESETS.CUSTOM) {
+    const validation = getCustomRangeValidation(customStart, customEnd);
+    if (!validation.isValid) {
+      return createEmptyTimeDimensionResult(
+        { start: null, end: null, startDate: null, endDate: null },
+        preset,
+        validation.validationError
+      );
+    }
+  }
+
   const range = getTimeRangeBounds(preset, customStart, customEnd);
   const allStageDates = buildAllWorkStageDates(works, orders, inquiries, statements);
 

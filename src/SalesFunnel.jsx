@@ -50,6 +50,21 @@ function formatDateForInput(date) {
   return `${year}-${month}-${day}`;
 }
 
+function getCustomDateError(preset, start, end) {
+  if (preset !== TIME_RANGE_PRESETS.CUSTOM) return null;
+  if (!start || !end) return '请选择完整的开始和结束日期';
+
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    return '日期格式不合法';
+  }
+  if (startDate > endDate) {
+    return '开始日期不能晚于结束日期';
+  }
+  return null;
+}
+
 function SalesFunnel({
   works,
   orders,
@@ -70,52 +85,25 @@ function SalesFunnel({
   const [timePreset, setTimePreset] = useState(TIME_RANGE_PRESETS.THIS_MONTH);
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
-  const [customDateError, setCustomDateError] = useState(null);
-
-  const validateCustomDateRange = useCallback((start, end) => {
-    if (timePreset !== TIME_RANGE_PRESETS.CUSTOM) {
-      setCustomDateError(null);
-      return true;
-    }
-    if (!start || !end) {
-      setCustomDateError('请选择完整的开始和结束日期');
-      return false;
-    }
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      setCustomDateError('日期格式不合法');
-      return false;
-    }
-    if (startDate > endDate) {
-      setCustomDateError('开始日期不能晚于结束日期');
-      return false;
-    }
-    setCustomDateError(null);
-    return true;
-  }, [timePreset]);
+  const customDateError = useMemo(
+    () => getCustomDateError(timePreset, customStartDate, customEndDate),
+    [timePreset, customStartDate, customEndDate]
+  );
 
   const handleCustomStartChange = useCallback((value) => {
     setCustomStartDate(value);
-    validateCustomDateRange(value, customEndDate);
     setSelectedStage(null);
-  }, [customEndDate, validateCustomDateRange]);
+  }, []);
 
   const handleCustomEndChange = useCallback((value) => {
     setCustomEndDate(value);
-    validateCustomDateRange(customStartDate, value);
     setSelectedStage(null);
-  }, [customStartDate, validateCustomDateRange]);
+  }, []);
 
   const handleTimePresetChange = useCallback((preset) => {
     setTimePreset(preset);
     setSelectedStage(null);
-    if (preset !== TIME_RANGE_PRESETS.CUSTOM) {
-      setCustomDateError(null);
-    } else {
-      validateCustomDateRange(customStartDate, customEndDate);
-    }
-  }, [customStartDate, customEndDate, validateCustomDateRange]);
+  }, []);
 
   const selectedWorkId = propSelectedWorkId ?? internalSelectedWorkId;
 
@@ -141,44 +129,11 @@ function SalesFunnel({
   );
 
   const timeDimensionStats = useMemo(() => {
-    if (timePreset === TIME_RANGE_PRESETS.CUSTOM && customDateError) {
-      return {
-        range: { start: null, end: null, startDate: null, endDate: null },
-        preset: timePreset,
-        stages: [
-          { stage: 'inquiry', label: '询价', count: 0, amount: 0, works: [] },
-          { stage: 'booking', label: '预订', count: 0, amount: 0, works: [] },
-          { stage: 'deal', label: '成交', count: 0, amount: 0, works: [] },
-          { stage: 'settlement', label: '结算', count: 0, amount: 0, works: [] }
-        ],
-        conversionRates: [
-          { stage: 'inquiry', fromPrevious: null, fromFirst: null },
-          { stage: 'booking', fromPrevious: 0, fromFirst: 0 },
-          { stage: 'deal', fromPrevious: 0, fromFirst: 0 },
-          { stage: 'settlement', fromPrevious: 0, fromFirst: 0 }
-        ],
-        summary: {
-          inquiryCount: 0,
-          bookingCount: 0,
-          dealCount: 0,
-          settlementCount: 0,
-          dealAmount: 0,
-          settlementAmount: 0,
-          averageDealCycle: null,
-          averageBalanceCycle: null,
-          cancelledCount: 0,
-          missingLogsCount: 0,
-          dealCycleSampleCount: 0,
-          balanceCycleSampleCount: 0
-        },
-        _invalidDateRange: true
-      };
-    }
     return calculateTimeDimensionFunnel(
       works, orders, inquiries, statements,
       timePreset, customStartDate, customEndDate
     );
-  }, [works, orders, inquiries, statements, timePreset, customStartDate, customEndDate, customDateError]);
+  }, [works, orders, inquiries, statements, timePreset, customStartDate, customEndDate]);
 
   const activeStats = viewMode === FUNNEL_VIEW_MODES.TIME_DIMENSION
     ? timeDimensionStats
@@ -271,7 +226,7 @@ function SalesFunnel({
   const renderTimeDimensionSummary = () => {
     const { summary } = timeDimensionStats;
     const { range } = timeDimensionStats;
-    const isInvalidRange = timeDimensionStats._invalidDateRange;
+    const isInvalidRange = timeDimensionStats.isValid === false || timeDimensionStats._invalidDateRange;
     const rangeLabel = (() => {
       if (isInvalidRange) return '日期范围无效';
       if (timePreset !== TIME_RANGE_PRESETS.CUSTOM) {

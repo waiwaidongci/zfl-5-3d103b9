@@ -3918,6 +3918,7 @@ function App() {
           loans={loans}
           statements={statements}
           inventoryTasks={inventoryTasks}
+          followUps={followUps}
           onFixApplied={handleFixApplied}
         />
       )}
