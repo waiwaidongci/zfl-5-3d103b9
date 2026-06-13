@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   AlertCircle, AlertTriangle, ArrowRight, Calendar, CheckCircle2, ChevronDown, ChevronUp,
-  Database, Download, Eye, Info, Plus, RotateCcw,
+  Database, Download, Eye, FileText, Info, Plus, RotateCcw,
   Settings, Shield, Upload, XCircle, Zap
 } from 'lucide-react';
 import {
