@@ -72,6 +72,7 @@ function SalesFunnel({
   statements,
   loans,
   inventoryTasks,
+  followUps,
   selectedWorkId: propSelectedWorkId,
   onBack,
   onViewWorkDetail,
@@ -361,6 +362,7 @@ function SalesFunnel({
         statements={statements}
         loans={loans}
         inventoryTasks={inventoryTasks}
+        followUps={followUps}
         onBack={handleBackFromDetail}
         onOpenOrderForWork={onOpenOrderForWork}
       />
@@ -671,6 +673,7 @@ function SalesFunnel({
             statements={statements}
             loans={loans}
             inventoryTasks={inventoryTasks}
+            followUps={followUps}
             onViewWorkDetail={(workId) => {
               setShowAnomalies(false);
               handleSelectWork(workId);

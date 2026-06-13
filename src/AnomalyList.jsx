@@ -24,6 +24,7 @@ function AnomalyList({
   statements,
   loans,
   inventoryTasks,
+  followUps,
   onViewWorkDetail
 }) {
   const [selectedSeverity, setSelectedSeverity] = useState('all');
@@ -32,8 +33,8 @@ function AnomalyList({
   const [expandedAnomalyId, setExpandedAnomalyId] = useState(null);
 
   const anomalyResult = useMemo(
-    () => detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks),
-    [works, orders, inquiries, statements, loans, inventoryTasks]
+    () => detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks, followUps),
+    [works, orders, inquiries, statements, loans, inventoryTasks, followUps]
   );
 
   const filteredAnomalies = useMemo(() => {

@@ -34,6 +34,7 @@ function WorkFunnelDetail({
   statements,
   loans,
   inventoryTasks,
+  followUps,
   onBack,
   onOpenOrderForWork
 }) {
@@ -44,11 +45,11 @@ function WorkFunnelDetail({
 
   const workAnomalies = useMemo(() => {
     if (!funnelDetail) return [];
-    const result = detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks);
+    const result = detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks, followUps);
     return result.anomalies.filter(
       (a) => a.workId === workId || a.orderId === funnelDetail.activeOrder?.id
     );
-  }, [funnelDetail, works, orders, inquiries, statements, loans, inventoryTasks, workId]);
+  }, [funnelDetail, works, orders, inquiries, statements, loans, inventoryTasks, workId, followUps]);
 
   if (!funnelDetail) {
     return (

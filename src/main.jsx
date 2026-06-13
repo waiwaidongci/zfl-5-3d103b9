@@ -4019,6 +4019,7 @@ function App() {
           statements={statements}
           loans={loans}
           inventoryTasks={inventoryTasks}
+          followUps={followUps}
           selectedWorkId={selectedFunnelWorkId}
           onBack={() => { setShowSalesFunnel(false); setSelectedFunnelWorkId(null); }}
           onViewWorkDetail={(workId) => setSelectedFunnelWorkId(selectedFunnelWorkId === workId ? null : workId)}

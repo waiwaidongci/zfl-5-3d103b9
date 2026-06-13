@@ -24,6 +24,7 @@ import {
   checkSettlementWorkInconsistent,
   checkPaymentConsistency,
   checkCustomerStatusConflict,
+  checkCustomerDuplicates,
   checkInventoryDiscrepancies
 } from './diagnosticRules.js';
 
@@ -53,5 +54,6 @@ export {
   checkSettlementWorkInconsistent,
   checkPaymentConsistency,
   checkCustomerStatusConflict,
+  checkCustomerDuplicates,
   checkInventoryDiscrepancies
 };

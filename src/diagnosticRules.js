@@ -782,7 +782,7 @@ function checkInventoryDiscrepancies(inventoryTasks, works) {
 }
 
 function runAllDiagnostics(data) {
-  const { works, orders, inquiries, loans, statements, inventoryTasks } = data;
+  const { works, orders, inquiries, loans, statements, inventoryTasks, followUps } = data;
 
   const allIssues = [
     ...checkSoldWithoutOrder(works, orders),
@@ -826,8 +826,8 @@ function runAllDiagnostics(data) {
   };
 }
 
-function detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks) {
-  const result = runAllDiagnostics({ works, orders, inquiries, loans: loans || [], statements, inventoryTasks: inventoryTasks || [] });
+function detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks, followUps) {
+  const result = runAllDiagnostics({ works, orders, inquiries, loans: loans || [], statements, inventoryTasks: inventoryTasks || [], followUps: followUps || [] });
 
   const byType = {};
   Object.values(RULE_ID).forEach((ruleId) => {
