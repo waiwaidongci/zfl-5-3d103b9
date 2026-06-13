@@ -13,16 +13,42 @@ import {
   Receipt,
   Coins,
   FileText,
-  ArrowLeft
+  ArrowLeft,
+  Clock,
+  BarChart3,
+  RefreshCw
 } from 'lucide-react';
 import {
   FUNNEL_STAGE_ORDER,
   FUNNEL_STAGE_LABELS,
-  calculateFunnelStats
+  TIME_RANGE_PRESETS,
+  TIME_RANGE_LABELS,
+  calculateFunnelStats,
+  calculateTimeDimensionFunnel
 } from './funnelStats.js';
 import { SEVERITY, RULE_LABELS } from './diagnosticRules.js';
 import AnomalyList from './AnomalyList.jsx';
 import WorkFunnelDetail from './WorkFunnelDetail.jsx';
+
+const FUNNEL_VIEW_MODES = {
+  CURRENT_STATUS: 'currentStatus',
+  TIME_DIMENSION: 'timeDimension'
+};
+
+const FUNNEL_VIEW_LABELS = {
+  [FUNNEL_VIEW_MODES.CURRENT_STATUS]: '当前状态',
+  [FUNNEL_VIEW_MODES.TIME_DIMENSION]: '时间维度'
+};
+
+function formatDateForInput(date) {
+  if (!date) return '';
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 function SalesFunnel({
   works,
@@ -40,6 +66,10 @@ function SalesFunnel({
   const [internalSelectedWorkId, setInternalSelectedWorkId] = useState(null);
   const [showAnomalies, setShowAnomalies] = useState(false);
   const [workSearchQuery, setWorkSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState(FUNNEL_VIEW_MODES.CURRENT_STATUS);
+  const [timePreset, setTimePreset] = useState(TIME_RANGE_PRESETS.THIS_MONTH);
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
 
   const selectedWorkId = propSelectedWorkId ?? internalSelectedWorkId;
 
@@ -64,9 +94,21 @@ function SalesFunnel({
     [works, orders, inquiries, statements]
   );
 
+  const timeDimensionStats = useMemo(
+    () => calculateTimeDimensionFunnel(
+      works, orders, inquiries, statements,
+      timePreset, customStartDate, customEndDate
+    ),
+    [works, orders, inquiries, statements, timePreset, customStartDate, customEndDate]
+  );
+
+  const activeStats = viewMode === FUNNEL_VIEW_MODES.TIME_DIMENSION
+    ? timeDimensionStats
+    : funnelStats;
+
   const filteredStageWorks = useMemo(() => {
     if (!selectedStage) return [];
-    const stageData = funnelStats.stages.find(
+    const stageData = activeStats.stages.find(
       (s) => s.stage === selectedStage
     );
     if (!stageData) return [];
@@ -79,7 +121,7 @@ function SalesFunnel({
         w.title.toLowerCase().includes(query) ||
         w.artist.toLowerCase().includes(query)
     );
-  }, [selectedStage, funnelStats.stages, workSearchQuery]);
+  }, [selectedStage, activeStats.stages, workSearchQuery]);
 
   const getStageIcon = (stage) => {
     switch (stage) {
@@ -104,6 +146,186 @@ function SalesFunnel({
       'funnel-stage-settlement'
     ];
     return colors[index] || '';
+  };
+
+  const renderTimeRangePresetButtons = () => (
+    <div className="time-range-presets">
+      {Object.entries(TIME_RANGE_PRESETS).map(([key, value]) => (
+        <button
+          key={value}
+          type="button"
+          className={`time-preset-btn ${timePreset === value ? 'active' : ''}`}
+          onClick={() => {
+            setTimePreset(value);
+            setSelectedStage(null);
+          }}
+        >
+          {TIME_RANGE_LABELS[value]}
+        </button>
+      ))}
+      {timePreset === TIME_RANGE_PRESETS.CUSTOM && (
+        <div className="custom-date-inputs">
+          <label>
+            <span>开始</span>
+            <input
+              type="date"
+              value={customStartDate}
+              onChange={(e) => {
+                setCustomStartDate(e.target.value);
+                setSelectedStage(null);
+              }}
+            />
+          </label>
+          <label>
+            <span>结束</span>
+            <input
+              type="date"
+              value={customEndDate}
+              onChange={(e) => {
+                setCustomEndDate(e.target.value);
+                setSelectedStage(null);
+              }}
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderTimeDimensionSummary = () => {
+    if (timeDimensionStats.isValid === false) {
+      return (
+        <div className="time-funnel-summary">
+          <div className="time-funnel-header-info">
+            <span className="time-stat-chip warning">
+              <AlertTriangle size={12} /> {timeDimensionStats.validationError || '日期范围无效'}
+            </span>
+          </div>
+          <p className="empty-tip" style={{ margin: '16px 0 0' }}>
+            请在上方选择完整的开始日期和结束日期后查看统计数据
+          </p>
+        </div>
+      );
+    }
+
+    const { summary } = timeDimensionStats;
+    const { range } = timeDimensionStats;
+    const rangeLabel = (() => {
+      if (timePreset !== TIME_RANGE_PRESETS.CUSTOM) {
+        return TIME_RANGE_LABELS[timePreset];
+      }
+      const start = customStartDate ? new Date(customStartDate).toLocaleDateString('zh-CN') : '';
+      const end = customEndDate ? new Date(customEndDate).toLocaleDateString('zh-CN') : '';
+      return start && end ? `${start} ~ ${end}` : '请选择日期范围';
+    })();
+
+    return (
+      <div className="time-funnel-summary">
+        <div className="time-funnel-header-info">
+          <span className="time-range-label">
+            <Calendar size={14} /> {rangeLabel}
+          </span>
+          {summary.cancelledCount > 0 && (
+            <span className="time-stat-chip cancelled">
+              <XCircle size={12} /> 撤销订单 {summary.cancelledCount} 单
+            </span>
+          )}
+          {summary.missingLogsCount > 0 && (
+            <span className="time-stat-chip warning">
+              <AlertTriangle size={12} /> 历史数据缺日志 {summary.missingLogsCount} 条
+            </span>
+          )}
+        </div>
+
+        <div className="time-funnel-stats-grid">
+          <div className="time-stat-card">
+            <div className="time-stat-icon" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
+              <MessageSquare size={18} />
+            </div>
+            <div className="time-stat-info">
+              <span className="time-stat-label">询价数</span>
+              <strong className="time-stat-value">{summary.inquiryCount}</strong>
+            </div>
+          </div>
+
+          <div className="time-stat-card">
+            <div className="time-stat-icon" style={{ background: '#e0e7ff', color: '#4338ca' }}>
+              <Calendar size={18} />
+            </div>
+            <div className="time-stat-info">
+              <span className="time-stat-label">预订数</span>
+              <strong className="time-stat-value">{summary.bookingCount}</strong>
+            </div>
+          </div>
+
+          <div className="time-stat-card">
+            <div className="time-stat-icon" style={{ background: '#dcfce7', color: '#15803d' }}>
+              <Receipt size={18} />
+            </div>
+            <div className="time-stat-info">
+              <span className="time-stat-label">成交数</span>
+              <strong className="time-stat-value" style={{ color: '#15803d' }}>{summary.dealCount}</strong>
+            </div>
+          </div>
+
+          <div className="time-stat-card">
+            <div className="time-stat-icon" style={{ background: '#ede9fe', color: '#6d28d9' }}>
+              <FileText size={18} />
+            </div>
+            <div className="time-stat-info">
+              <span className="time-stat-label">结算数</span>
+              <strong className="time-stat-value">{summary.settlementCount}</strong>
+            </div>
+          </div>
+
+          <div className="time-stat-card">
+            <div className="time-stat-icon" style={{ background: '#dcfce7', color: '#15803d' }}>
+              <Coins size={18} />
+            </div>
+            <div className="time-stat-info">
+              <span className="time-stat-label">成交金额</span>
+              <strong className="time-stat-value amount">
+                ¥{summary.dealAmount.toLocaleString()}
+              </strong>
+            </div>
+          </div>
+
+          <div className="time-stat-card">
+            <div className="time-stat-icon" style={{ background: '#fef3c7', color: '#92400e' }}>
+              <Clock size={18} />
+            </div>
+            <div className="time-stat-info">
+              <span className="time-stat-label">平均成交周期</span>
+              <strong className="time-stat-value">
+                {summary.averageDealCycle !== null
+                  ? `${summary.averageDealCycle}天`
+                  : '—'}
+              </strong>
+              {summary.dealCycleSampleCount > 0 && (
+                <span className="time-stat-sub">样本 {summary.dealCycleSampleCount}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="time-stat-card">
+            <div className="time-stat-icon" style={{ background: '#fce7f3', color: '#9d174d' }}>
+              <RefreshCw size={18} />
+            </div>
+            <div className="time-stat-info">
+              <span className="time-stat-label">尾款回收周期</span>
+              <strong className="time-stat-value">
+                {summary.averageBalanceCycle !== null
+                  ? `${summary.averageBalanceCycle}天`
+                  : '—'}
+              </strong>
+              {summary.balanceCycleSampleCount > 0 && (
+                <span className="time-stat-sub">样本 {summary.balanceCycleSampleCount}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (selectedWorkId) {
@@ -148,73 +370,106 @@ function SalesFunnel({
         </div>
       </div>
 
-      <div className="funnel-overview-stats">
-        <div className="funnel-stat-card">
-          <div
-            className="funnel-stat-icon"
-            style={{ background: '#dbeafe', color: '#1d4ed8' }}
-          >
-            <Users size={20} />
-          </div>
-          <div className="funnel-stat-info">
-            <span className="funnel-stat-label">总作品数</span>
-            <strong className="funnel-stat-value">{works.length}件</strong>
-          </div>
-        </div>
-        <div className="funnel-stat-card">
-          <div
-            className="funnel-stat-icon"
-            style={{ background: '#dcfce7', color: '#15803d' }}
-          >
-            <Receipt size={20} />
-          </div>
-          <div className="funnel-stat-info">
-            <span className="funnel-stat-label">成交总额</span>
-            <strong className="funnel-stat-value" style={{ color: '#15803d' }}>
-              ¥{funnelStats.summary.totalDealAmount.toLocaleString()}
-            </strong>
-          </div>
-        </div>
-        <div className="funnel-stat-card">
-          <div
-            className="funnel-stat-icon"
-            style={{ background: '#fef3c7', color: '#92400e' }}
-          >
-            <Coins size={20} />
-          </div>
-          <div className="funnel-stat-info">
-            <span className="funnel-stat-label">已结算</span>
-            <strong className="funnel-stat-value" style={{ color: '#92400e' }}>
-              ¥{funnelStats.summary.totalSettledAmount.toLocaleString()}
-            </strong>
-          </div>
-        </div>
-        <div className="funnel-stat-card">
-          <div
-            className="funnel-stat-icon"
-            style={{ background: '#fee2e2', color: '#991b1b' }}
-          >
-            <AlertTriangle size={20} />
-          </div>
-          <div className="funnel-stat-info">
-            <span className="funnel-stat-label">待结算</span>
-            <strong className="funnel-stat-value" style={{ color: '#991b1b' }}>
-              ¥{funnelStats.summary.pendingSettlementAmount.toLocaleString()}
-            </strong>
-          </div>
-        </div>
+      <div className="funnel-view-switcher">
+        <button
+          type="button"
+          className={`view-mode-btn ${viewMode === FUNNEL_VIEW_MODES.CURRENT_STATUS ? 'active' : ''}`}
+          onClick={() => {
+            setViewMode(FUNNEL_VIEW_MODES.CURRENT_STATUS);
+            setSelectedStage(null);
+          }}
+        >
+          <BarChart3 size={14} /> 当前状态
+        </button>
+        <button
+          type="button"
+          className={`view-mode-btn ${viewMode === FUNNEL_VIEW_MODES.TIME_DIMENSION ? 'active' : ''}`}
+          onClick={() => {
+            setViewMode(FUNNEL_VIEW_MODES.TIME_DIMENSION);
+            setSelectedStage(null);
+          }}
+        >
+          <Clock size={14} /> 时间维度
+        </button>
       </div>
 
+      {viewMode === FUNNEL_VIEW_MODES.TIME_DIMENSION && (
+        <div className="time-filter-section">
+          {renderTimeRangePresetButtons()}
+        </div>
+      )}
+
+      {viewMode === FUNNEL_VIEW_MODES.TIME_DIMENSION ? (
+        renderTimeDimensionSummary()
+      ) : (
+        <div className="funnel-overview-stats">
+          <div className="funnel-stat-card">
+            <div
+              className="funnel-stat-icon"
+              style={{ background: '#dbeafe', color: '#1d4ed8' }}
+            >
+              <Users size={20} />
+            </div>
+            <div className="funnel-stat-info">
+              <span className="funnel-stat-label">总作品数</span>
+              <strong className="funnel-stat-value">{works.length}件</strong>
+            </div>
+          </div>
+          <div className="funnel-stat-card">
+            <div
+              className="funnel-stat-icon"
+              style={{ background: '#dcfce7', color: '#15803d' }}
+            >
+              <Receipt size={20} />
+            </div>
+            <div className="funnel-stat-info">
+              <span className="funnel-stat-label">成交总额</span>
+              <strong className="funnel-stat-value" style={{ color: '#15803d' }}>
+                ¥{funnelStats.summary.totalDealAmount.toLocaleString()}
+              </strong>
+            </div>
+          </div>
+          <div className="funnel-stat-card">
+            <div
+              className="funnel-stat-icon"
+              style={{ background: '#fef3c7', color: '#92400e' }}
+            >
+              <Coins size={20} />
+            </div>
+            <div className="funnel-stat-info">
+              <span className="funnel-stat-label">已结算</span>
+              <strong className="funnel-stat-value" style={{ color: '#92400e' }}>
+                ¥{funnelStats.summary.totalSettledAmount.toLocaleString()}
+              </strong>
+            </div>
+          </div>
+          <div className="funnel-stat-card">
+            <div
+              className="funnel-stat-icon"
+              style={{ background: '#fee2e2', color: '#991b1b' }}
+            >
+              <AlertTriangle size={20} />
+            </div>
+            <div className="funnel-stat-info">
+              <span className="funnel-stat-label">待结算</span>
+              <strong className="funnel-stat-value" style={{ color: '#991b1b' }}>
+                ¥{funnelStats.summary.pendingSettlementAmount.toLocaleString()}
+              </strong>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="funnel-stage-container">
-        {funnelStats.stages.map((stage, index) => {
-          const conversion = funnelStats.conversionRates[index];
+        {activeStats.stages.map((stage, index) => {
+          const conversion = activeStats.conversionRates[index];
           const widthPercent =
             index === 0
               ? 100
               : Math.max(
                   30,
                   (stage.count /
-                    Math.max(funnelStats.stages[0].count, 1)) *
+                    Math.max(activeStats.stages[0].count, 1)) *
                     100
                 );
           return (
@@ -241,7 +496,8 @@ function SalesFunnel({
                   <div className="funnel-stage-title">
                     <strong>{FUNNEL_STAGE_LABELS[stage.stage]}</strong>
                     <span>
-                      {stage.count}件 · ¥{stage.amount.toLocaleString()}
+                      {stage.count}件
+                      {stage.amount > 0 && ` · ¥${stage.amount.toLocaleString()}`}
                     </span>
                   </div>
                 </div>
@@ -298,6 +554,7 @@ function SalesFunnel({
                 const workInquiries = inquiries.filter(
                   (i) => i.workId === work.id
                 );
+                const stageDates = work._stageDates;
                 return (
                   <article
                     key={work.id}
@@ -336,6 +593,45 @@ function SalesFunnel({
                         </span>
                       )}
                     </div>
+                    {viewMode === FUNNEL_VIEW_MODES.TIME_DIMENSION && stageDates && (
+                      <div className="work-time-dates">
+                        {stageDates.inquiryDate && (
+                          <span className="work-date-tag">
+                            <MessageSquare size={10} />
+                            询价 {new Date(stageDates.inquiryDate).toLocaleDateString('zh-CN')}
+                          </span>
+                        )}
+                        {stageDates.bookingDate && stageDates.bookingDate !== stageDates.dealDate && (
+                          <span className="work-date-tag">
+                            <Calendar size={10} />
+                            预订 {new Date(stageDates.bookingDate).toLocaleDateString('zh-CN')}
+                          </span>
+                        )}
+                        {stageDates.dealDate && (
+                          <span className="work-date-tag">
+                            <Receipt size={10} />
+                            成交 {new Date(stageDates.dealDate).toLocaleDateString('zh-CN')}
+                          </span>
+                        )}
+                        {stageDates.settlementDate && (
+                          <span className="work-date-tag">
+                            <FileText size={10} />
+                            结算 {new Date(stageDates.settlementDate).toLocaleDateString('zh-CN')}
+                          </span>
+                        )}
+                        {stageDates.isCancelled && stageDates.cancelledAt && (
+                          <span className="work-date-tag" style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#991b1b' }}>
+                            <XCircle size={10} />
+                            撤销 {new Date(stageDates.cancelledAt).toLocaleDateString('zh-CN')}
+                          </span>
+                        )}
+                        {stageDates.hasMissingLogs && (
+                          <span className="work-date-tag warning" title={`缺少：${stageDates.missingLogFields?.join('、') || '日志'}`}>
+                            <AlertTriangle size={10} /> 缺{stageDates.missingLogFields?.[0] || '日志'}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="funnel-work-actions">
                       <button
                         className="ghost small"
