@@ -238,7 +238,8 @@ function applyFixes(patches, data) {
   return updatedData;
 }
 
-function persistFixedData(updatedData, patches) {
+function persistFixedData(updatedData, patches, storage) {
+  const targetStorage = storage || localStorage;
   const patchEntityTypes = new Set();
   (patches || []).forEach((p) => {
     if (p.entityType === 'inventoryItems') {
@@ -253,7 +254,7 @@ function persistFixedData(updatedData, patches) {
     if (patchEntityTypes.size > 0 && !patchEntityTypes.has(key)) return;
     const value = updatedData[key];
     if (Array.isArray(value)) {
-      localStorage.setItem(storageKey, JSON.stringify(value));
+      targetStorage.setItem(storageKey, JSON.stringify(value));
     }
   });
 }

@@ -289,9 +289,9 @@ function checkDealWithoutDeposit(works, orders) {
   return issues;
 }
 
-function checkBalanceOverdue(works, orders) {
+function checkBalanceOverdue(works, orders, now) {
   const issues = [];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = (now ? new Date(now) : new Date()).toISOString().slice(0, 10);
   orders.forEach((order) => {
     if (order.cancelledAt) return;
     if (order.balanceStatus === '已支付') return;
@@ -489,7 +489,7 @@ function checkSettlementWorkInconsistent(works, orders, statements) {
   return issues;
 }
 
-function checkPaymentConsistency(statements) {
+function checkPaymentConsistency(statements, now) {
   const issues = [];
   statements.forEach((statement) => {
     if (!statement.confirmed) return;
@@ -559,8 +559,8 @@ function checkPaymentConsistency(statements) {
 
     if (statement.confirmedAt) {
       const confirmedDate = new Date(statement.confirmedAt);
-      const now = new Date();
-      const daysSinceConfirmed = Math.floor((now - confirmedDate) / (1000 * 60 * 60 * 24));
+      const currentDate = now ? new Date(now) : new Date();
+      const daysSinceConfirmed = Math.floor((currentDate - confirmedDate) / (1000 * 60 * 60 * 24));
       if (daysSinceConfirmed > 30 && paymentStatus !== '已付款') {
         issues.push(createIssue(RULE_ID.PAYMENT_OVERDUE, {
           id: `payment-overdue-${statement.id}`,
@@ -781,7 +781,7 @@ function checkInventoryDiscrepancies(inventoryTasks, works) {
   return issues;
 }
 
-function runAllDiagnostics(data) {
+function runAllDiagnostics(data, now) {
   const { works, orders, inquiries, loans, statements, inventoryTasks, followUps } = data;
 
   const allIssues = [
@@ -791,14 +791,14 @@ function runAllDiagnostics(data) {
     ...checkSettledWithoutOrder(works, orders),
     ...checkBookedWithoutInquiry(works, inquiries),
     ...checkDealWithoutDeposit(works, orders),
-    ...checkBalanceOverdue(works, orders),
+    ...checkBalanceOverdue(works, orders, now),
     ...checkOrphanInquiries(works, inquiries),
     ...checkOrphanOrders(works, orders),
     ...checkOrphanLoans(works, loans || []),
     ...checkOrphanInventoryItems(works, inventoryTasks || []),
     ...checkLoanReturnedNotReverted(works, loans || []),
     ...checkSettlementWorkInconsistent(works, orders, statements || []),
-    ...checkPaymentConsistency(statements || []),
+    ...checkPaymentConsistency(statements || [], now),
     ...checkCustomerStatusConflict(inquiries, orders),
     ...checkCustomerDuplicates(inquiries, orders, followUps || []),
     ...checkInventoryDiscrepancies(inventoryTasks || [], works)
@@ -822,12 +822,12 @@ function runAllDiagnostics(data) {
     byCategory,
     bySeverity,
     byRuleId,
-    scannedAt: new Date().toISOString()
+    scannedAt: (now ? new Date(now) : new Date()).toISOString()
   };
 }
 
-function detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks, followUps) {
-  const result = runAllDiagnostics({ works, orders, inquiries, loans: loans || [], statements, inventoryTasks: inventoryTasks || [], followUps: followUps || [] });
+function detectAllAnomalies(works, orders, inquiries, statements, loans, inventoryTasks, followUps, now) {
+  const result = runAllDiagnostics({ works, orders, inquiries, loans: loans || [], statements, inventoryTasks: inventoryTasks || [], followUps: followUps || [] }, now);
 
   const byType = {};
   Object.values(RULE_ID).forEach((ruleId) => {
