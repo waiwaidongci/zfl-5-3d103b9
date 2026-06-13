@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 5175",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:ci": "vitest run --reporter=verbose",
+    "check": "vitest run --reporter=verbose && vite build",
+    "prebuild": "vitest run"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.7.0",
