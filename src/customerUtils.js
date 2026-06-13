@@ -19,8 +19,9 @@ function getCustomerKey(name, phone) {
   return `${name.trim()}__${phone.trim()}`;
 }
 
-function buildCustomerProfile(inquiries, orders) {
+function buildCustomerProfile(inquiries, orders, followUps = []) {
   const customerMap = new Map();
+  const today = new Date().toISOString().slice(0, 10);
 
   inquiries.forEach((inq) => {
     if (!inq.customerName || !inq.customerPhone) return;
@@ -31,6 +32,7 @@ function buildCustomerProfile(inquiries, orders) {
         phone: inq.customerPhone.trim(),
         inquiries: [],
         orders: [],
+        followUps: [],
         lastActiveAt: null
       });
     }
@@ -52,6 +54,7 @@ function buildCustomerProfile(inquiries, orders) {
         phone: order.customerPhone.trim(),
         inquiries: [],
         orders: [],
+        followUps: [],
         lastActiveAt: null
       });
     }
@@ -63,8 +66,29 @@ function buildCustomerProfile(inquiries, orders) {
     }
   });
 
+  followUps.forEach((fu) => {
+    if (!fu.customerName || !fu.customerPhone) return;
+    const key = getCustomerKey(fu.customerName, fu.customerPhone);
+    if (!customerMap.has(key)) {
+      customerMap.set(key, {
+        name: fu.customerName.trim(),
+        phone: fu.customerPhone.trim(),
+        inquiries: [],
+        orders: [],
+        followUps: [],
+        lastActiveAt: null
+      });
+    }
+    const profile = customerMap.get(key);
+    profile.followUps.push(fu);
+    const fuTime = new Date(fu.completedAt || fu.createdAt).getTime();
+    if (!profile.lastActiveAt || fuTime > profile.lastActiveAt) {
+      profile.lastActiveAt = fuTime;
+    }
+  });
+
   const customerList = [];
-  customerMap.forEach((profile) => {
+  customerMap.forEach((profile, key) => {
     const totalDealAmount = profile.orders.reduce(
       (sum, order) => sum + Number(order.dealPrice || 0),
       0
@@ -86,6 +110,8 @@ function buildCustomerProfile(inquiries, orders) {
       } else {
         followStatus = CUSTOMER_STATUS.FOLLOWING;
       }
+    } else if (profile.followUps && profile.followUps.length > 0) {
+      followStatus = CUSTOMER_STATUS.FOLLOWING;
     } else {
       followStatus = CUSTOMER_STATUS.NEW;
     }
@@ -107,22 +133,63 @@ function buildCustomerProfile(inquiries, orders) {
       displayWork = allActivities[0].workTitle || null;
     }
 
+    const pendingFollowUps = (profile.followUps || []).filter((fu) => !fu.completedAt);
+    const pendingFollowUpCount = pendingFollowUps.length;
+
+    let nextFollowUpAt = null;
+    let hasOverdue = false;
+    let hasTodayFollowUp = false;
+    let lastFollowUpAt = null;
+
+    if (pendingFollowUps.length > 0) {
+      const sortedPending = [...pendingFollowUps].sort(
+        (a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate)
+      );
+      nextFollowUpAt = sortedPending[0].scheduledDate;
+
+      sortedPending.forEach((fu) => {
+        const scheduled = fu.scheduledDate.slice(0, 10);
+        if (scheduled < today) {
+          hasOverdue = true;
+        }
+        if (scheduled === today) {
+          hasTodayFollowUp = true;
+        }
+      });
+    }
+
+    const completedFollowUps = (profile.followUps || []).filter((fu) => fu.completedAt);
+    if (completedFollowUps.length > 0) {
+      const lastCompleted = [...completedFollowUps].sort(
+        (a, b) => new Date(b.completedAt) - new Date(a.completedAt)
+      )[0];
+      lastFollowUpAt = lastCompleted.completedAt;
+    }
+
     customerList.push({
-      key: profile.key || getCustomerKey(profile.name, profile.phone),
+      key,
       name: profile.name,
       phone: profile.phone,
       inquiries: profile.inquiries,
       orders: profile.orders,
+      followUps: profile.followUps || [],
       totalDealAmount,
       lastInquiryWork: displayWork,
       followStatus,
       inquiryCount,
       orderCount,
-      lastActiveAt: profile.lastActiveAt
+      lastActiveAt: profile.lastActiveAt,
+      pendingFollowUpCount,
+      nextFollowUpAt,
+      hasOverdue,
+      hasTodayFollowUp,
+      lastFollowUpAt
     });
   });
 
   customerList.sort((a, b) => {
+    if (a.hasOverdue !== b.hasOverdue) return a.hasOverdue ? -1 : 1;
+    if (a.hasTodayFollowUp !== b.hasTodayFollowUp) return a.hasTodayFollowUp ? -1 : 1;
     if (a.followStatus !== b.followStatus) {
       return (
         CUSTOMER_STATUS_ORDER.indexOf(a.followStatus) -

@@ -27,7 +27,12 @@ const OPERATION_TYPES = {
   INVENTORY_TASK_REOPEN: 'inventory-task-reopen',
   INVENTORY_CREATE_TASK: 'inventory-create-task',
   HEALTH_CENTER_FIX: 'health-center-fix',
-  BACKUP_IMPORT: 'backup-import'
+  BACKUP_IMPORT: 'backup-import',
+  ADD_FOLLOW_UP: 'add-follow-up',
+  COMPLETE_FOLLOW_UP: 'complete-follow-up',
+  POSTPONE_FOLLOW_UP: 'postpone-follow-up',
+  UPDATE_FOLLOW_UP: 'update-follow-up',
+  DELETE_FOLLOW_UP: 'delete-follow-up'
 };
 
 const OPERATION_LABELS = {
@@ -54,7 +59,12 @@ const OPERATION_LABELS = {
   [OPERATION_TYPES.INVENTORY_TASK_REOPEN]: '重新开启盘点',
   [OPERATION_TYPES.INVENTORY_CREATE_TASK]: '创建盘点任务',
   [OPERATION_TYPES.HEALTH_CENTER_FIX]: '数据健康修复',
-  [OPERATION_TYPES.BACKUP_IMPORT]: '备份导入'
+  [OPERATION_TYPES.BACKUP_IMPORT]: '备份导入',
+  [OPERATION_TYPES.ADD_FOLLOW_UP]: '新增跟进计划',
+  [OPERATION_TYPES.COMPLETE_FOLLOW_UP]: '完成跟进计划',
+  [OPERATION_TYPES.POSTPONE_FOLLOW_UP]: '延期跟进计划',
+  [OPERATION_TYPES.UPDATE_FOLLOW_UP]: '修改跟进计划',
+  [OPERATION_TYPES.DELETE_FOLLOW_UP]: '删除跟进计划'
 };
 
 const STORAGE_KEYS = {
@@ -64,10 +74,11 @@ const STORAGE_KEYS = {
   orders: 'zfl-5-orders',
   statements: 'zfl-5-statements',
   loans: 'zfl-5-loans',
-  inventoryTasks: 'zfl-5-inventory-tasks'
+  inventoryTasks: 'zfl-5-inventory-tasks',
+  followUps: 'zfl-5-follow-ups'
 };
 
-const ENTITY_ORDER = ['artists', 'works', 'inquiries', 'orders', 'statements', 'loans', 'inventoryTasks'];
+const ENTITY_ORDER = ['artists', 'works', 'inquiries', 'orders', 'statements', 'loans', 'inventoryTasks', 'followUps'];
 
 class HistoryManager {
   constructor() {

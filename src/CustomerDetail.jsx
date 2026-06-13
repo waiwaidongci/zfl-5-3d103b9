@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ArrowLeft,
   User,
@@ -15,18 +15,48 @@ import {
   CheckCircle2,
   XCircle,
   Package,
-  History
+  History,
+  AlertTriangle,
+  CheckSquare,
+  Pencil,
+  Trash2,
+  X
 } from 'lucide-react';
 import { CUSTOMER_STATUS } from './customerUtils.js';
+
+const iso = (offset = 0) => {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return date.toISOString().slice(0, 10);
+};
 
 function CustomerDetail({
   customer,
   works,
+  followUps = [],
   onBack,
   onViewWorkFunnel,
   onOpenOrderForWork,
-  onOpenInquiryForWork
+  onOpenInquiryForWork,
+  onAddFollowUp,
+  onCompleteFollowUp,
+  onPostponeFollowUp,
+  onUpdateFollowUp,
+  onDeleteFollowUp
 }) {
+  const [showFollowUpForm, setShowFollowUpForm] = useState(false);
+  const [followUpForm, setFollowUpForm] = useState({
+    scheduledDate: iso(1),
+    content: '',
+    responsible: ''
+  });
+  const [editingFollowUpId, setEditingFollowUpId] = useState(null);
+  const [completingFollowUpId, setCompletingFollowUpId] = useState(null);
+  const [completeResult, setCompleteResult] = useState('');
+  const [postponingFollowUpId, setPostponingFollowUpId] = useState(null);
+  const [postponeDate, setPostponeDate] = useState('');
+  const [postponeNote, setPostponeNote] = useState('');
+  const [showCompleted, setShowCompleted] = useState(false);
   const sortedInquiries = useMemo(() => {
     return [...customer.inquiries].sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
@@ -38,6 +68,103 @@ function CustomerDetail({
       (a, b) => new Date(b.dealDate || b.createdAt) - new Date(a.dealDate || a.createdAt)
     );
   }, [customer.orders]);
+
+  const customerFollowUps = useMemo(() => {
+    return followUps.filter(
+      (fu) => fu.customerName === customer.name && fu.customerPhone === customer.phone
+    );
+  }, [followUps, customer.name, customer.phone]);
+
+  const sortedFollowUps = useMemo(() => {
+    return [...customerFollowUps].sort(
+      (a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate)
+    );
+  }, [customerFollowUps]);
+
+  const pendingFollowUps = useMemo(() => {
+    return sortedFollowUps.filter((fu) => !fu.completedAt);
+  }, [sortedFollowUps]);
+
+  const completedFollowUps = useMemo(() => {
+    return sortedFollowUps.filter((fu) => fu.completedAt).sort(
+      (a, b) => new Date(b.completedAt) - new Date(a.completedAt)
+    );
+  }, [sortedFollowUps]);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  function getFollowUpStatus(fu) {
+    if (fu.completedAt) return 'completed';
+    const scheduled = fu.scheduledDate.slice(0, 10);
+    if (scheduled < today) return 'overdue';
+    if (scheduled === today) return 'today';
+    return 'upcoming';
+  }
+
+  function handleAddFollowUp(e) {
+    e.preventDefault();
+    if (!followUpForm.scheduledDate || !followUpForm.content.trim()) return;
+    onAddFollowUp(
+      customer.name,
+      customer.phone,
+      followUpForm.scheduledDate,
+      followUpForm.content,
+      followUpForm.responsible
+    );
+    setFollowUpForm({ scheduledDate: iso(1), content: '', responsible: '' });
+    setShowFollowUpForm(false);
+  }
+
+  function handleCompleteFollowUp() {
+    if (!completingFollowUpId) return;
+    onCompleteFollowUp(completingFollowUpId, completeResult);
+    setCompletingFollowUpId(null);
+    setCompleteResult('');
+  }
+
+  function handlePostponeFollowUp() {
+    if (!postponingFollowUpId || !postponeDate) return;
+    onPostponeFollowUp(postponingFollowUpId, postponeDate, postponeNote);
+    setPostponingFollowUpId(null);
+    setPostponeDate('');
+    setPostponeNote('');
+  }
+
+  function openEditFollowUp(fu) {
+    setEditingFollowUpId(fu.id);
+    setFollowUpForm({
+      scheduledDate: fu.scheduledDate.slice(0, 10),
+      content: fu.content,
+      responsible: fu.responsible || ''
+    });
+    setShowFollowUpForm(true);
+  }
+
+  function handleUpdateFollowUp(e) {
+    e.preventDefault();
+    if (!editingFollowUpId || !followUpForm.scheduledDate || !followUpForm.content.trim()) return;
+    onUpdateFollowUp(editingFollowUpId, {
+      scheduledDate: followUpForm.scheduledDate,
+      content: followUpForm.content.trim(),
+      responsible: followUpForm.responsible.trim()
+    });
+    setEditingFollowUpId(null);
+    setFollowUpForm({ scheduledDate: iso(1), content: '', responsible: '' });
+    setShowFollowUpForm(false);
+  }
+
+  function openCompleteDialog(fu) {
+    setCompletingFollowUpId(fu.id);
+    setCompleteResult('');
+  }
+
+  function openPostponeDialog(fu) {
+    setPostponingFollowUpId(fu.id);
+    const scheduled = new Date(fu.scheduledDate);
+    scheduled.setDate(scheduled.getDate() + 7);
+    setPostponeDate(scheduled.toISOString().slice(0, 10));
+    setPostponeNote('');
+  }
 
   const dealedWorks = useMemo(() => {
     return sortedOrders.map((order) => {
@@ -76,7 +203,7 @@ function CustomerDetail({
     return activities.sort((a, b) => b.time - a.time).slice(0, 10);
   }, [customer.inquiries, customer.orders]);
 
-  const pendingFollowUps = useMemo(() => {
+  const pendingInquiryFollowUps = useMemo(() => {
     return sortedInquiries.filter(
       (inq) => inq.status === '待跟进' || inq.status === '跟进中'
     );
@@ -185,20 +312,27 @@ function CustomerDetail({
           <div className="customer-detail-stat">
             <Eye size={18} />
             <div>
+              <strong>{pendingInquiryFollowUps.length}</strong>
+              <span>待跟进询价</span>
+            </div>
+          </div>
+          <div className="customer-detail-stat">
+            <CheckSquare size={18} />
+            <div>
               <strong>{pendingFollowUps.length}</strong>
-              <span>待跟进</span>
+              <span>待跟进计划</span>
             </div>
           </div>
         </div>
       </div>
 
-      {pendingFollowUps.length > 0 && (
+      {pendingInquiryFollowUps.length > 0 && (
         <div className="customer-detail-section">
           <h4 className="customer-section-title">
-            <AlertCircle size={16} /> 待跟进事项（{pendingFollowUps.length}）
+            <AlertCircle size={16} /> 待跟进询价（{pendingInquiryFollowUps.length}）
           </h4>
           <div className="customer-followup-list">
-            {pendingFollowUps.map((inq) => {
+            {pendingInquiryFollowUps.map((inq) => {
               const work = getWorkForInquiry(inq);
               const isWorkSold = work && work.sale === '已售';
               return (
@@ -251,6 +385,269 @@ function CustomerDetail({
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      <div className="customer-detail-section">
+        <div className="section-header-with-action">
+          <h4 className="customer-section-title">
+            <CheckSquare size={16} /> 跟进计划（{pendingFollowUps.length}待跟进 / {completedFollowUps.length}已完成）
+          </h4>
+          <button
+            className="small"
+            onClick={() => {
+              setEditingFollowUpId(null);
+              setFollowUpForm({ scheduledDate: iso(1), content: '', responsible: '' });
+              setShowFollowUpForm(true);
+            }}
+          >
+            <Plus size={14} /> 新增跟进
+          </button>
+        </div>
+
+        {showFollowUpForm && (
+          <div className="follow-up-form-panel">
+            <div className="follow-up-form-header">
+              <strong>{editingFollowUpId ? '编辑跟进计划' : '新增跟进计划'}</strong>
+              <button
+                className="small ghost"
+                onClick={() => {
+                  setShowFollowUpForm(false);
+                  setEditingFollowUpId(null);
+                }}
+              >
+                <X size={14} /> 取消
+              </button>
+            </div>
+            <form onSubmit={editingFollowUpId ? handleUpdateFollowUp : handleAddFollowUp}>
+              <div className="follow-up-form-row">
+                <label>
+                  <Calendar size={12} /> 跟进日期
+                  <input
+                    type="date"
+                    value={followUpForm.scheduledDate}
+                    onChange={(e) => setFollowUpForm({ ...followUpForm, scheduledDate: e.target.value })}
+                    required
+                  />
+                </label>
+                <label>
+                  <User size={12} /> 负责人
+                  <input
+                    type="text"
+                    placeholder="负责人姓名"
+                    value={followUpForm.responsible}
+                    onChange={(e) => setFollowUpForm({ ...followUpForm, responsible: e.target.value })}
+                  />
+                </label>
+              </div>
+              <label className="follow-up-form-full">
+                <MessageSquare size={12} /> 跟进内容
+                <textarea
+                  placeholder="请输入跟进内容和备注..."
+                  value={followUpForm.content}
+                  onChange={(e) => setFollowUpForm({ ...followUpForm, content: e.target.value })}
+                  required
+                  rows={3}
+                />
+              </label>
+              <div className="follow-up-form-actions">
+                <button type="submit" className="primary">
+                  {editingFollowUpId ? '保存修改' : '创建跟进'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {pendingFollowUps.length === 0 && completedFollowUps.length === 0 ? (
+          <p className="empty-tip small-empty">暂无跟进计划，点击"新增跟进"创建第一条</p>
+        ) : (
+          <>
+            {pendingFollowUps.length > 0 && (
+              <div className="follow-up-list">
+                {pendingFollowUps.map((fu) => {
+                  const status = getFollowUpStatus(fu);
+                  return (
+                    <div
+                      key={fu.id}
+                      className={`follow-up-item follow-up-${status}`}
+                    >
+                      <div className="follow-up-item-head">
+                        <div className="follow-up-item-date">
+                          <Calendar size={14} />
+                          <span>{new Date(fu.scheduledDate).toLocaleDateString('zh-CN')}</span>
+                          {status === 'overdue' && (
+                            <span className="follow-up-status-badge follow-up-status-overdue">
+                              <AlertTriangle size={12} /> 已逾期
+                            </span>
+                          )}
+                          {status === 'today' && (
+                            <span className="follow-up-status-badge follow-up-status-today">
+                              <Clock size={12} /> 今日
+                            </span>
+                          )}
+                          {status === 'upcoming' && (
+                            <span className="follow-up-status-badge follow-up-status-upcoming">
+                              <Clock size={12} /> 待跟进
+                            </span>
+                          )}
+                        </div>
+                        {fu.responsible && (
+                          <span className="follow-up-responsible">
+                            <User size={12} /> {fu.responsible}
+                          </span>
+                        )}
+                      </div>
+                      <div className="follow-up-item-content">
+                        {fu.content.split('\n').map((line, idx) => (
+                          <p key={idx}>{line}</p>
+                        ))}
+                      </div>
+                      <div className="follow-up-item-actions">
+                        <button
+                          className="small primary"
+                          onClick={() => openCompleteDialog(fu)}
+                        >
+                          <CheckCircle2 size={12} /> 完成
+                        </button>
+                        <button
+                          className="small"
+                          onClick={() => openPostponeDialog(fu)}
+                        >
+                          <Clock size={12} /> 延期
+                        </button>
+                        <button
+                          className="small ghost"
+                          onClick={() => openEditFollowUp(fu)}
+                        >
+                          <Pencil size={12} /> 编辑
+                        </button>
+                        <button
+                          className="small ghost danger"
+                          onClick={() => onDeleteFollowUp(fu.id)}
+                        >
+                          <Trash2 size={12} /> 删除
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {completedFollowUps.length > 0 && (
+              <div className="follow-up-completed-section">
+                <button
+                  className="follow-up-toggle-completed"
+                  onClick={() => setShowCompleted(!showCompleted)}
+                >
+                  {showCompleted ? '收起' : '展开'}已完成跟进（{completedFollowUps.length}）
+                </button>
+                {showCompleted && (
+                  <div className="follow-up-list follow-up-completed-list">
+                    {completedFollowUps.map((fu) => (
+                      <div key={fu.id} className="follow-up-item follow-up-completed">
+                        <div className="follow-up-item-head">
+                          <div className="follow-up-item-date">
+                            <CheckCircle2 size={14} />
+                            <span>完成于 {new Date(fu.completedAt).toLocaleDateString('zh-CN')}</span>
+                            <span className="follow-up-status-badge follow-up-status-completed">
+                              原计划：{new Date(fu.scheduledDate).toLocaleDateString('zh-CN')}
+                            </span>
+                          </div>
+                          {fu.responsible && (
+                            <span className="follow-up-responsible">
+                              <User size={12} /> {fu.responsible}
+                            </span>
+                          )}
+                        </div>
+                        <div className="follow-up-item-content">
+                          {fu.content.split('\n').map((line, idx) => (
+                            <p key={idx}>{line}</p>
+                          ))}
+                        </div>
+                        {fu.result && (
+                          <div className="follow-up-item-result">
+                            <strong>跟进结果：</strong>
+                            {fu.result.split('\n').map((line, idx) => (
+                              <span key={idx}>{line}</span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="follow-up-item-actions">
+                          <button
+                            className="small ghost danger"
+                            onClick={() => onDeleteFollowUp(fu.id)}
+                          >
+                            <Trash2 size={12} /> 删除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {completingFollowUpId && (
+        <div className="modal-overlay" onClick={() => setCompletingFollowUpId(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h4 className="modal-title">完成跟进计划</h4>
+            <label className="follow-up-form-full">
+              <MessageSquare size={12} /> 跟进结果
+              <textarea
+                placeholder="请输入跟进结果..."
+                value={completeResult}
+                onChange={(e) => setCompleteResult(e.target.value)}
+                rows={4}
+              />
+            </label>
+            <div className="modal-actions">
+              <button className="ghost" onClick={() => setCompletingFollowUpId(null)}>
+                取消
+              </button>
+              <button className="primary" onClick={handleCompleteFollowUp}>
+                确认完成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {postponingFollowUpId && (
+        <div className="modal-overlay" onClick={() => setPostponingFollowUpId(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h4 className="modal-title">延期跟进计划</h4>
+            <label>
+              <Calendar size={12} /> 新的跟进日期
+              <input
+                type="date"
+                value={postponeDate}
+                onChange={(e) => setPostponeDate(e.target.value)}
+                required
+              />
+            </label>
+            <label className="follow-up-form-full">
+              <MessageSquare size={12} /> 延期备注（可选）
+              <textarea
+                placeholder="请输入延期原因..."
+                value={postponeNote}
+                onChange={(e) => setPostponeNote(e.target.value)}
+                rows={3}
+              />
+            </label>
+            <div className="modal-actions">
+              <button className="ghost" onClick={() => setPostponingFollowUpId(null)}>
+                取消
+              </button>
+              <button className="primary" onClick={handlePostponeFollowUp}>
+                确认延期
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -450,6 +450,7 @@ function App() {
   const [statementPreview, setStatementPreview] = useState(null);
   const [statementFilter, setStatementFilter] = useState('全部');
   const [inventoryTasks, setInventoryTasks] = useStorage('zfl-5-inventory-tasks', []);
+  const [followUps, setFollowUps] = useStorage('zfl-5-follow-ups', []);
   const [showInventoryForm, setShowInventoryForm] = useState(false);
   const [inventoryForm, setInventoryForm] = useState({ name: '', note: '' });
   const [selectedInventoryId, setSelectedInventoryId] = useState(null);
@@ -507,6 +508,7 @@ function App() {
     if (!affectedTypes || affectedTypes.includes('statements')) setStatements(restoredData.statements);
     if (!affectedTypes || affectedTypes.includes('loans')) setLoans(restoredData.loans);
     if (!affectedTypes || affectedTypes.includes('inventoryTasks')) setInventoryTasks(restoredData.inventoryTasks);
+    if (!affectedTypes || affectedTypes.includes('followUps')) setFollowUps(restoredData.followUps || []);
   }
 
   function handleUndo() {
@@ -745,12 +747,12 @@ function App() {
   }, [orders]);
 
   const customerStats = useMemo(() => {
-    const list = buildCustomerProfile(inquiries, orders);
+    const list = buildCustomerProfile(inquiries, orders, followUps);
     return {
       totalCount: list.length,
       dealedCount: list.filter((c) => c.orderCount > 0).length
     };
-  }, [inquiries, orders]);
+  }, [inquiries, orders, followUps]);
 
   function addArtist(event) {
     event.preventDefault();
@@ -824,12 +826,27 @@ function App() {
       status: '待跟进',
       createdAt: new Date().toISOString()
     };
+    const autoFollowUp = {
+      id: crypto.randomUUID(),
+      customerName: newInquiry.customerName,
+      customerPhone: newInquiry.customerPhone,
+      scheduledDate: iso(0),
+      content: `客户询价：${newInquiry.workTitle}${newInquiry.intendedPrice > 0 ? `，意向价 ¥${newInquiry.intendedPrice.toLocaleString()}` : ''}${newInquiry.remark ? `\n客户备注：${newInquiry.remark}` : ''}`,
+      responsible: '',
+      result: '系统自动记录：询价登记成功',
+      completedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    };
     historyManager.recordAtomicOperation(
       OPERATION_TYPES.ADD_INQUIRY,
       `添加询价「${newInquiry.workTitle} · ${newInquiry.customerName}」`,
-      [{ entityType: 'inquiries', entityId: newInquiry.id, entityLabel: `${newInquiry.workTitle} · ${newInquiry.customerName}` }],
+      [
+        { entityType: 'inquiries', entityId: newInquiry.id, entityLabel: `${newInquiry.workTitle} · ${newInquiry.customerName}` },
+        { entityType: 'followUps', entityId: autoFollowUp.id, entityLabel: `${newInquiry.customerName} · 询价跟进` }
+      ],
       () => {
         setInquiries([newInquiry, ...inquiries]);
+        setFollowUps([autoFollowUp, ...followUps]);
       }
     );
     setInquiryForm({ workId: '', customerName: '', customerPhone: '', intendedPrice: '', remark: '' });
@@ -850,6 +867,100 @@ function App() {
       [{ entityType: 'inquiries', entityId: id, entityLabel: label }],
       () => {
         setInquiries(inquiries.map((inq) => inq.id === id ? { ...inq, status: nextStatus } : inq));
+      }
+    );
+  }
+
+  function addFollowUp(customerName, customerPhone, scheduledDate, content, responsible) {
+    const newFollowUp = {
+      id: crypto.randomUUID(),
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      scheduledDate,
+      content: content.trim(),
+      responsible: responsible.trim(),
+      result: '',
+      completedAt: null,
+      createdAt: new Date().toISOString()
+    };
+    const label = `${customerName} · ${scheduledDate}`;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.ADD_FOLLOW_UP,
+      `新增跟进计划「${label}」`,
+      [{ entityType: 'followUps', entityId: newFollowUp.id, entityLabel: label }],
+      () => {
+        setFollowUps([newFollowUp, ...followUps]);
+      }
+    );
+    return newFollowUp;
+  }
+
+  function completeFollowUp(id, result) {
+    const fu = followUps.find((f) => f.id === id);
+    if (!fu) return;
+    const label = `${fu.customerName} · ${fu.scheduledDate}`;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.COMPLETE_FOLLOW_UP,
+      `完成跟进计划「${label}」`,
+      [{ entityType: 'followUps', entityId: id, entityLabel: label }],
+      () => {
+        setFollowUps(followUps.map((f) =>
+          f.id === id
+            ? { ...f, result: result?.trim() || '', completedAt: new Date().toISOString() }
+            : f
+        ));
+      }
+    );
+  }
+
+  function postponeFollowUp(id, newScheduledDate, note) {
+    const fu = followUps.find((f) => f.id === id);
+    if (!fu) return;
+    const label = `${fu.customerName} · ${fu.scheduledDate} → ${newScheduledDate}`;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.POSTPONE_FOLLOW_UP,
+      `延期跟进计划「${label}」`,
+      [{ entityType: 'followUps', entityId: id, entityLabel: label }],
+      () => {
+        setFollowUps(followUps.map((f) =>
+          f.id === id
+            ? {
+                ...f,
+                scheduledDate: newScheduledDate,
+                content: note ? `${f.content}\n延期备注：${note}` : f.content
+              }
+            : f
+        ));
+      }
+    );
+  }
+
+  function updateFollowUp(id, patch) {
+    const fu = followUps.find((f) => f.id === id);
+    if (!fu) return;
+    const label = `${fu.customerName} · ${fu.scheduledDate}`;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.UPDATE_FOLLOW_UP,
+      `修改跟进计划「${label}」`,
+      [{ entityType: 'followUps', entityId: id, entityLabel: label }],
+      () => {
+        setFollowUps(followUps.map((f) =>
+          f.id === id ? { ...f, ...patch } : f
+        ));
+      }
+    );
+  }
+
+  function deleteFollowUp(id) {
+    const fu = followUps.find((f) => f.id === id);
+    if (!fu) return;
+    const label = `${fu.customerName} · ${fu.scheduledDate}`;
+    historyManager.recordAtomicOperation(
+      OPERATION_TYPES.DELETE_FOLLOW_UP,
+      `删除跟进计划「${label}」`,
+      [{ entityType: 'followUps', entityId: id, entityLabel: label }],
+      () => {
+        setFollowUps(followUps.filter((f) => f.id !== id));
       }
     );
   }
@@ -941,8 +1052,8 @@ function App() {
   }
 
   const allCustomers = useMemo(
-    () => buildCustomerProfile(inquiries, orders),
-    [inquiries, orders]
+    () => buildCustomerProfile(inquiries, orders, followUps),
+    [inquiries, orders, followUps]
   );
 
   const selectedCustomer = useMemo(() => {
@@ -1049,18 +1160,32 @@ function App() {
         cancelledAt: null
       };
 
+      const autoFollowUp = {
+        id: crypto.randomUUID(),
+        customerName: newOrder.customerName,
+        customerPhone: newOrder.customerPhone,
+        scheduledDate: iso(0),
+        content: `订单成交：${newOrder.workTitle}\n成交价：¥${newOrder.dealPrice.toLocaleString()}\n订金：¥${newOrder.deposit.toLocaleString()}\n成交日期：${newOrder.dealDate}${newOrder.note ? `\n备注：${newOrder.note}` : ''}`,
+        responsible: '',
+        result: '系统自动记录：订单登记成功',
+        completedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      };
+
       historyManager.recordAtomicOperation(
         OPERATION_TYPES.ADD_ORDER,
         `登记订单「${newOrder.workTitle} · ${newOrder.customerName}」`,
         [
           { entityType: 'orders', entityId: newOrder.id, entityLabel: `${newOrder.workTitle} · ${newOrder.customerName}` },
-          { entityType: 'works', entityId: orderForm.workId, entityLabel: selectedWork ? `${selectedWork.artist} — ${selectedWork.title}` : orderForm.workId }
+          { entityType: 'works', entityId: orderForm.workId, entityLabel: selectedWork ? `${selectedWork.artist} — ${selectedWork.title}` : orderForm.workId },
+          { entityType: 'followUps', entityId: autoFollowUp.id, entityLabel: `${newOrder.customerName} · 订单跟进` }
         ],
         () => {
           setOrders([newOrder, ...orders]);
           setWorks(works.map((w) => w.id === orderForm.workId ? {
             ...w, sale: '已售', settlement: '待结算', saleDate: orderForm.dealDate
           } : w));
+          setFollowUps([autoFollowUp, ...followUps]);
         }
       );
     }
@@ -1830,7 +1955,8 @@ function App() {
     orders: { id: '', workId: '', workTitle: '', workArtist: '', customerName: '', customerPhone: '', dealPrice: 0, deposit: 0, balanceStatus: '待支付', dealDate: '', note: '', createdAt: '', cancelledAt: null },
     statements: { id: '', artist: '', startDate: '', endDate: '', items: [], totalDealPrice: 0, totalCommission: 0, totalPayable: 0, commissionRate: 35, confirmed: false, confirmedAt: null, paymentStatus: '待付款', paymentDate: null, paymentNote: '', paidAmount: 0, createdAt: '' },
     loans: { id: '', workId: '', workTitle: '', workArtist: '', borrower: '', loanDate: '', expectedReturnDate: '', contactPerson: '', notes: '', returnedAt: null, createdAt: '' },
-    inventoryTasks: { id: '', name: '', note: '', status: '进行中', items: [], totalCount: 0, checkedCount: 0, exceptionCount: 0, missingCount: 0, unresolvedDiscrepancyCount: 0, createdAt: '', completedAt: null }
+    inventoryTasks: { id: '', name: '', note: '', status: '进行中', items: [], totalCount: 0, checkedCount: 0, exceptionCount: 0, missingCount: 0, unresolvedDiscrepancyCount: 0, createdAt: '', completedAt: null },
+    followUps: { id: '', customerName: '', customerPhone: '', scheduledDate: '', content: '', responsible: '', result: '', completedAt: null, createdAt: '' }
   };
 
   function normalizeRecord(entityType, record) {
@@ -1870,7 +1996,8 @@ function App() {
       orders: JSON.parse(JSON.stringify(orders)),
       statements: JSON.parse(JSON.stringify(statements)),
       loans: JSON.parse(JSON.stringify(loans)),
-      inventoryTasks: JSON.parse(JSON.stringify(inventoryTasks))
+      inventoryTasks: JSON.parse(JSON.stringify(inventoryTasks)),
+      followUps: JSON.parse(JSON.stringify(followUps))
     };
   }
 
@@ -2052,6 +2179,9 @@ function App() {
         setStatements(restoredData.statements);
         setLoans(restoredData.loans);
         setInventoryTasks(restoredData.inventoryTasks);
+        if (restoredData.followUps !== undefined) {
+          setFollowUps(restoredData.followUps);
+        }
       }
     );
 
@@ -2089,6 +2219,7 @@ function App() {
         if (restoredData.statements) setStatements(restoredData.statements);
         if (restoredData.loans) setLoans(restoredData.loans);
         if (restoredData.inventoryTasks) setInventoryTasks(restoredData.inventoryTasks);
+        if (restoredData.followUps) setFollowUps(restoredData.followUps);
       }
     );
   }
@@ -2126,6 +2257,7 @@ function App() {
         if (updatedData.statements) setStatements(updatedData.statements);
         if (updatedData.loans) setLoans(updatedData.loans);
         if (updatedData.inventoryTasks) setInventoryTasks(updatedData.inventoryTasks);
+        if (updatedData.followUps) setFollowUps(updatedData.followUps);
       }
     );
   }
@@ -2137,7 +2269,8 @@ function App() {
     orders: '订单',
     statements: '对账单',
     loans: '借展',
-    inventoryTasks: '盘点任务'
+    inventoryTasks: '盘点任务',
+    followUps: '跟进计划'
   };
 
   return (
@@ -3035,15 +3168,22 @@ function App() {
         <CustomerDetail
           customer={selectedCustomer}
           works={works}
+          followUps={followUps}
           onBack={() => setSelectedCustomerKey(null)}
           onViewWorkFunnel={handleViewWorkFunnelFromCustomer}
           onOpenOrderForWork={openOrderForWork}
           onOpenInquiryForWork={openInquiryForWork}
+          onAddFollowUp={addFollowUp}
+          onCompleteFollowUp={completeFollowUp}
+          onPostponeFollowUp={postponeFollowUp}
+          onUpdateFollowUp={updateFollowUp}
+          onDeleteFollowUp={deleteFollowUp}
         />
       ) : (
         <CustomerList
           inquiries={inquiries}
           orders={orders}
+          followUps={followUps}
           onSelectCustomer={(key) => setSelectedCustomerKey(key)}
         />
       )}

@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { User, Phone, Banknote, Search, Filter, Eye, Receipt, MessageSquare, ChevronRight } from 'lucide-react';
+import { User, Phone, Banknote, Search, Filter, Eye, Receipt, MessageSquare, ChevronRight, AlertTriangle, Clock } from 'lucide-react';
 import { CUSTOMER_STATUS, buildCustomerProfile, filterCustomers } from './customerUtils.js';
 
-function CustomerList({ inquiries, orders, onSelectCustomer }) {
+function CustomerList({ inquiries, orders, followUps = [], onSelectCustomer }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('全部状态');
 
   const allCustomers = useMemo(
-    () => buildCustomerProfile(inquiries, orders),
-    [inquiries, orders]
+    () => buildCustomerProfile(inquiries, orders, followUps),
+    [inquiries, orders, followUps]
   );
 
   const searchedCustomers = useMemo(
@@ -128,6 +128,16 @@ function CustomerList({ inquiries, orders, onSelectCustomer }) {
                   </span>
                 </div>
                 <div className="customer-head-right">
+                  {customer.hasOverdue && (
+                    <span className="follow-up-badge follow-up-overdue">
+                      <AlertTriangle size={12} /> 已逾期
+                    </span>
+                  )}
+                  {!customer.hasOverdue && customer.hasTodayFollowUp && (
+                    <span className="follow-up-badge follow-up-today">
+                      <Clock size={12} /> 今日跟进
+                    </span>
+                  )}
                   <span
                     className={`status-select ${getStatusClass(
                       customer.followStatus
@@ -171,7 +181,18 @@ function CustomerList({ inquiries, orders, onSelectCustomer }) {
                   <span className="customer-tag">
                     <Receipt size={12} /> 订单 {customer.orderCount}次
                   </span>
-                  {customer.lastActiveAt && (
+                  {customer.pendingFollowUpCount > 0 && (
+                    <span className="customer-tag follow-up-pending-tag">
+                      <Clock size={12} /> 待跟进 {customer.pendingFollowUpCount}项
+                    </span>
+                  )}
+                  {customer.nextFollowUpAt && (
+                    <span className={`customer-date ${customer.hasOverdue ? 'follow-up-overdue-text' : ''}`}>
+                      {customer.hasOverdue ? '下次跟进（已逾期）：' : '下次跟进：'}
+                      {new Date(customer.nextFollowUpAt).toLocaleDateString('zh-CN')}
+                    </span>
+                  )}
+                  {!customer.nextFollowUpAt && customer.lastActiveAt && (
                     <span className="customer-date">
                       最近活跃{' '}
                       {new Date(customer.lastActiveAt).toLocaleDateString(

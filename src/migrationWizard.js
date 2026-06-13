@@ -9,7 +9,8 @@ const ENTITY_LABELS = {
   orders: '订单',
   statements: '对账单',
   loans: '借展',
-  inventoryTasks: '盘点任务'
+  inventoryTasks: '盘点任务',
+  followUps: '跟进计划'
 };
 
 const FIELD_DEFAULTS = {
@@ -19,7 +20,8 @@ const FIELD_DEFAULTS = {
   orders: { id: '', workId: '', workTitle: '', workArtist: '', customerName: '', customerPhone: '', dealPrice: 0, deposit: 0, balanceStatus: '待支付', dealDate: '', note: '', createdAt: '', cancelledAt: null },
   statements: { id: '', artist: '', startDate: '', endDate: '', items: [], totalDealPrice: 0, totalCommission: 0, totalPayable: 0, commissionRate: 35, confirmed: false, confirmedAt: null, paymentStatus: '待付款', paymentDate: null, paymentNote: '', paidAmount: 0, createdAt: '' },
   loans: { id: '', workId: '', workTitle: '', workArtist: '', borrower: '', loanDate: '', expectedReturnDate: '', contactPerson: '', notes: '', returnedAt: null, createdAt: '' },
-  inventoryTasks: { id: '', name: '', note: '', status: '进行中', items: [], totalCount: 0, checkedCount: 0, exceptionCount: 0, missingCount: 0, unresolvedDiscrepancyCount: 0, createdAt: '', completedAt: null }
+  inventoryTasks: { id: '', name: '', note: '', status: '进行中', items: [], totalCount: 0, checkedCount: 0, exceptionCount: 0, missingCount: 0, unresolvedDiscrepancyCount: 0, createdAt: '', completedAt: null },
+  followUps: { id: '', customerName: '', customerPhone: '', scheduledDate: '', content: '', responsible: '', result: '', completedAt: null, createdAt: '' }
 };
 
 const STRATEGY_OPTIONS = {

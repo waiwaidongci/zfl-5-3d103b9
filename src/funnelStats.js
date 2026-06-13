@@ -340,17 +340,6 @@ function deriveWorkStageDates(work, workInquiries, workOrders, workStatements) {
   const cancelledOrders = workOrders.filter((o) => !!o.cancelledAt);
   const allOrders = [...workOrders].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
-  const lastCancelledOrder = cancelledOrders.length > 0
-    ? cancelledOrders.reduce((latest, o) => {
-        const oDate = parseDateSafe(o.cancelledAt);
-        const lDate = parseDateSafe(latest.cancelledAt);
-        return oDate && lDate && oDate > lDate ? o : latest;
-      }, cancelledOrders[0])
-    : null;
-
-  const cancelledAt = lastCancelledOrder ? lastCancelledOrder.cancelledAt : null;
-  const isCancelled = !!cancelledAt && !activeOrder;
-
   const firstInquiry = workInquiries.length > 0
     ? workInquiries.reduce((earliest, inq) => {
         const inqDate = parseDateSafe(inq.createdAt);
@@ -360,6 +349,14 @@ function deriveWorkStageDates(work, workInquiries, workOrders, workStatements) {
     : null;
 
   let inquiryDate = firstInquiry ? firstInquiry.createdAt : null;
+
+  const lastCancelledOrder = cancelledOrders.length > 0
+    ? cancelledOrders.reduce((latest, o) => {
+        const oDate = parseDateSafe(o.cancelledAt);
+        const lDate = parseDateSafe(latest.cancelledAt);
+        return oDate && lDate && oDate > lDate ? o : latest;
+      }, cancelledOrders[0])
+    : null;
 
   let bookingDate = null;
   let bookingSource = null;
@@ -392,16 +389,16 @@ function deriveWorkStageDates(work, workInquiries, workOrders, workStatements) {
     }
   }
 
-  if (work.sale === '已预订' && !bookingDate && !isCancelled) {
+  if (work.sale === '已预订' && !bookingDate) {
     bookingDate = work.saleDate || work.inDate || work.createdAt || null;
     bookingSource = work.saleDate ? 'work_saleDate' : (work.inDate ? 'work_inDate' : (work.createdAt ? 'work_createdAt' : 'derived'));
   }
-  if (work.sale === '已售' && !bookingDate && !isCancelled) {
+  if (work.sale === '已售' && !bookingDate) {
     bookingDate = work.saleDate || work.inDate || work.createdAt || null;
     bookingSource = work.saleDate ? 'work_saleDate_booking' : (work.inDate ? 'work_inDate' : (work.createdAt ? 'work_createdAt' : 'derived'));
   }
 
-  if (work.sale === '已售' && !dealDate && !isCancelled) {
+  if (work.sale === '已售' && !dealDate) {
     dealDate = work.saleDate || work.inDate || work.createdAt || null;
     dealSource = work.saleDate ? 'work_saleDate' : (work.inDate ? 'work_inDate' : (work.createdAt ? 'work_createdAt' : 'derived'));
   }
@@ -410,15 +407,15 @@ function deriveWorkStageDates(work, workInquiries, workOrders, workStatements) {
     .filter((s) => s.confirmed)
     .sort((a, b) => new Date(b.confirmedAt || b.createdAt) - new Date(a.confirmedAt || a.createdAt))[0];
 
-  if (confirmedStatement && !isCancelled) {
+  if (confirmedStatement) {
     settlementDate = confirmedStatement.confirmedAt || confirmedStatement.createdAt;
     settlementSource = confirmedStatement.confirmedAt ? 'statement_confirmedAt' : 'statement_createdAt';
-  } else if (work.settlement === '已结算' && !isCancelled) {
+  } else if (work.settlement === '已结算') {
     settlementDate = work.settlementDate || work.saleDate || work.inDate || work.createdAt || null;
     settlementSource = work.settlementDate ? 'work_settlementDate' : (work.saleDate ? 'work_saleDate' : (work.inDate ? 'work_inDate' : (work.createdAt ? 'work_createdAt' : 'derived')));
   }
 
-  if (confirmedStatement && !isCancelled) {
+  if (confirmedStatement) {
     const stmtDate = confirmedStatement.paymentDate || confirmedStatement.confirmedAt;
     if (!balancePaidDate || (stmtDate && new Date(stmtDate) > new Date(balancePaidDate))) {
       balancePaidDate = stmtDate;
@@ -426,7 +423,7 @@ function deriveWorkStageDates(work, workInquiries, workOrders, workStatements) {
     }
   }
 
-  const hasMissingLogs = !isCancelled && !!(
+  const hasMissingLogs = !!(
     (inquiryDate === null && (work.sale === '已预订' || work.sale === '已售' || work.settlement === '已结算')) ||
     (bookingDate === null && work.sale === '已售') ||
     (bookingDate === null && work.sale === '已预订') ||
@@ -435,18 +432,21 @@ function deriveWorkStageDates(work, workInquiries, workOrders, workStatements) {
   );
 
   const missingLogFields = [];
-  if (!isCancelled && inquiryDate === null && (work.sale === '已预订' || work.sale === '已售' || work.settlement === '已结算')) {
+  if (inquiryDate === null && (work.sale === '已预订' || work.sale === '已售' || work.settlement === '已结算')) {
     missingLogFields.push('询价记录');
   }
-  if (!isCancelled && bookingDate === null && (work.sale === '已预订' || work.sale === '已售')) {
+  if (bookingDate === null && (work.sale === '已预订' || work.sale === '已售')) {
     missingLogFields.push('预订记录');
   }
-  if (!isCancelled && dealDate === null && work.sale === '已售') {
+  if (dealDate === null && work.sale === '已售') {
     missingLogFields.push('成交记录');
   }
-  if (!isCancelled && settlementDate === null && work.settlement === '已结算') {
+  if (settlementDate === null && work.settlement === '已结算') {
     missingLogFields.push('结算记录');
   }
+
+  const cancelledAt = lastCancelledOrder ? lastCancelledOrder.cancelledAt : null;
+  const isCancelled = !!cancelledAt && !activeOrder;
 
   return {
     workId: work.id,
@@ -511,77 +511,6 @@ function buildAllWorkStageDates(works, orders, inquiries, statements) {
 
 function calculateTimeDimensionFunnel(works, orders, inquiries, statements, preset, customStart, customEnd) {
   const range = getTimeRangeBounds(preset, customStart, customEnd);
-
-  if (preset === TIME_RANGE_PRESETS.CUSTOM && (!range.startDate || !range.endDate)) {
-    return {
-      range,
-      preset,
-      isValid: false,
-      validationError: '请选择完整的自定义日期范围',
-      stages: FUNNEL_STAGE_ORDER.map((stage) => ({
-        stage,
-        label: FUNNEL_STAGE_LABELS[stage],
-        count: 0,
-        amount: 0,
-        works: []
-      })),
-      conversionRates: FUNNEL_STAGE_ORDER.map((stage) => ({
-        stage,
-        fromPrevious: null,
-        fromFirst: null
-      })),
-      summary: {
-        inquiryCount: 0,
-        bookingCount: 0,
-        dealCount: 0,
-        settlementCount: 0,
-        dealAmount: 0,
-        settlementAmount: 0,
-        averageDealCycle: null,
-        averageBalanceCycle: null,
-        cancelledCount: 0,
-        missingLogsCount: 0,
-        dealCycleSampleCount: 0,
-        balanceCycleSampleCount: 0
-      }
-    };
-  }
-
-  if (range.startDate && range.endDate && range.startDate > range.endDate) {
-    return {
-      range,
-      preset,
-      isValid: false,
-      validationError: '开始日期不能晚于结束日期',
-      stages: FUNNEL_STAGE_ORDER.map((stage) => ({
-        stage,
-        label: FUNNEL_STAGE_LABELS[stage],
-        count: 0,
-        amount: 0,
-        works: []
-      })),
-      conversionRates: FUNNEL_STAGE_ORDER.map((stage) => ({
-        stage,
-        fromPrevious: null,
-        fromFirst: null
-      })),
-      summary: {
-        inquiryCount: 0,
-        bookingCount: 0,
-        dealCount: 0,
-        settlementCount: 0,
-        dealAmount: 0,
-        settlementAmount: 0,
-        averageDealCycle: null,
-        averageBalanceCycle: null,
-        cancelledCount: 0,
-        missingLogsCount: 0,
-        dealCycleSampleCount: 0,
-        balanceCycleSampleCount: 0
-      }
-    };
-  }
-
   const allStageDates = buildAllWorkStageDates(works, orders, inquiries, statements);
 
   const inquiryStageWorks = allStageDates.filter((wd) =>
@@ -591,25 +520,20 @@ function calculateTimeDimensionFunnel(works, orders, inquiries, statements, pres
   const bookingStageWorks = allStageDates.filter(
     (wd) =>
       isDateInRange(wd.bookingDate, range.start, range.end) &&
-      wd.bookingDate !== null &&
-      wd.activeOrder &&
-      !wd.isCancelled
+      !wd.activeOrder?.cancelledAt
   );
 
   const dealStageWorks = allStageDates.filter(
     (wd) =>
       isDateInRange(wd.dealDate, range.start, range.end) &&
-      wd.activeOrder &&
-      !wd.isCancelled
+      !wd.activeOrder?.cancelledAt &&
+      wd.activeOrder
   );
 
   const settlementStageWorks = allStageDates.filter(
     (wd) =>
       isDateInRange(wd.settlementDate, range.start, range.end) &&
-      wd.work.settlement === '已结算' &&
-      wd.settlementDate !== null &&
-      wd.activeOrder &&
-      !wd.isCancelled
+      wd.work.settlement === '已结算'
   );
 
   const inquiryCount = inquiryStageWorks.length;
@@ -648,16 +572,7 @@ function calculateTimeDimensionFunnel(works, orders, inquiries, statements, pres
     wd.cancelledOrders.some((o) => isDateInRange(o.cancelledAt, range.start, range.end))
   ).length;
 
-  const worksWithActivityInPeriod = [
-    ...inquiryStageWorks,
-    ...bookingStageWorks,
-    ...dealStageWorks,
-    ...settlementStageWorks
-  ].filter((wd, index, self) =>
-    index === self.findIndex((w) => w.workId === wd.workId)
-  );
-
-  const missingLogsCount = worksWithActivityInPeriod.filter((wd) => wd.hasMissingLogs).length;
+  const missingLogsCount = dealStageWorks.filter((wd) => wd.hasMissingLogs).length;
 
   const conversionRates = [
     { stage: FUNNEL_STAGES.INQUIRY, fromPrevious: null, fromFirst: null },
@@ -712,7 +627,6 @@ function calculateTimeDimensionFunnel(works, orders, inquiries, statements, pres
   return {
     range,
     preset,
-    isValid: true,
     stages,
     conversionRates,
     summary: {

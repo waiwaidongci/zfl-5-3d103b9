@@ -193,21 +193,6 @@ function SalesFunnel({
   );
 
   const renderTimeDimensionSummary = () => {
-    if (timeDimensionStats.isValid === false) {
-      return (
-        <div className="time-funnel-summary">
-          <div className="time-funnel-header-info">
-            <span className="time-stat-chip warning">
-              <AlertTriangle size={12} /> {timeDimensionStats.validationError || '日期范围无效'}
-            </span>
-          </div>
-          <p className="empty-tip" style={{ margin: '16px 0 0' }}>
-            请在上方选择完整的开始日期和结束日期后查看统计数据
-          </p>
-        </div>
-      );
-    }
-
     const { summary } = timeDimensionStats;
     const { range } = timeDimensionStats;
     const rangeLabel = (() => {
@@ -601,12 +586,6 @@ function SalesFunnel({
                             询价 {new Date(stageDates.inquiryDate).toLocaleDateString('zh-CN')}
                           </span>
                         )}
-                        {stageDates.bookingDate && stageDates.bookingDate !== stageDates.dealDate && (
-                          <span className="work-date-tag">
-                            <Calendar size={10} />
-                            预订 {new Date(stageDates.bookingDate).toLocaleDateString('zh-CN')}
-                          </span>
-                        )}
                         {stageDates.dealDate && (
                           <span className="work-date-tag">
                             <Receipt size={10} />
@@ -619,15 +598,9 @@ function SalesFunnel({
                             结算 {new Date(stageDates.settlementDate).toLocaleDateString('zh-CN')}
                           </span>
                         )}
-                        {stageDates.isCancelled && stageDates.cancelledAt && (
-                          <span className="work-date-tag" style={{ background: '#fef2f2', borderColor: '#fca5a5', color: '#991b1b' }}>
-                            <XCircle size={10} />
-                            撤销 {new Date(stageDates.cancelledAt).toLocaleDateString('zh-CN')}
-                          </span>
-                        )}
                         {stageDates.hasMissingLogs && (
-                          <span className="work-date-tag warning" title={`缺少：${stageDates.missingLogFields?.join('、') || '日志'}`}>
-                            <AlertTriangle size={10} /> 缺{stageDates.missingLogFields?.[0] || '日志'}
+                          <span className="work-date-tag warning">
+                            <AlertTriangle size={10} /> 缺日志
                           </span>
                         )}
                       </div>
